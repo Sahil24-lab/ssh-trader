@@ -86,7 +86,11 @@ def ema(values: Sequence[float], span: int) -> list[float]:
     return out
 
 
-def _true_ranges(high: Sequence[float], low: Sequence[float], close: Sequence[float]) -> list[float]:
+def _true_ranges(
+    high: Sequence[float],
+    low: Sequence[float],
+    close: Sequence[float],
+) -> list[float]:
     if not (len(high) == len(low) == len(close)):
         raise ValueError("high/low/close must have the same length")
     if not high:
@@ -94,17 +98,25 @@ def _true_ranges(high: Sequence[float], low: Sequence[float], close: Sequence[fl
 
     tr: list[float] = []
     prev_close = close[0]
-    for idx, (h, l, c) in enumerate(zip(high, low, close, strict=True)):
-        if not (math.isfinite(h) and math.isfinite(l) and math.isfinite(c)):
+    for idx, (high_value, low_value, close_value) in enumerate(zip(high, low, close, strict=True)):
+        if not (
+            math.isfinite(high_value) and math.isfinite(low_value) and math.isfinite(close_value)
+        ):
             raise ValueError("high/low/close must be finite")
-        if h < l:
+        if high_value < low_value:
             raise ValueError("high must be >= low")
 
         if idx == 0:
-            tr.append(h - l)
+            tr.append(high_value - low_value)
         else:
-            tr.append(max(h - l, abs(h - prev_close), abs(l - prev_close)))
-        prev_close = c
+            tr.append(
+                max(
+                    high_value - low_value,
+                    abs(high_value - prev_close),
+                    abs(low_value - prev_close),
+                )
+            )
+        prev_close = close_value
     return tr
 
 
@@ -239,3 +251,35 @@ def drawdown(values: Sequence[float]) -> list[float]:
 
     return out
 
+
+def rolling_drawdown(values: Sequence[float], window: int) -> list[float | None]:
+    """Rolling drawdown relative to the trailing peak in the last ``window`` bars.
+
+    Returns ``None`` until enough history is available.
+    """
+    if window <= 0:
+        raise ValueError("window must be positive")
+    if not values:
+        return []
+
+    out: list[float | None] = [None] * len(values)
+
+    # Monotonic deque of candidate peaks: (index, value) decreasing by value.
+    q: deque[tuple[int, float]] = deque()
+    for i, v in enumerate(values):
+        if not math.isfinite(v):
+            raise ValueError("values must be finite")
+
+        while q and q[-1][1] <= v:
+            q.pop()
+        q.append((i, v))
+
+        start = i - window + 1
+        while q and q[0][0] < start:
+            q.popleft()
+
+        if i >= window - 1:
+            peak = q[0][1]
+            out[i] = (v / peak) - 1.0
+
+    return out

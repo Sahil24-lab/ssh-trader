@@ -6,6 +6,7 @@ from ssh_trader.nav.indicators import (
     ema,
     log_returns,
     realized_volatility,
+    rolling_drawdown,
     sma,
     volatility_percentile,
 )
@@ -79,4 +80,16 @@ def test_drawdown_series() -> None:
     assert out[1] == 0.0
     _assert_close(out[2], 105.0 / 110.0 - 1.0)
     assert out[3] == 0.0
+    _assert_close(out[4], 90.0 / 120.0 - 1.0)
+
+
+def test_rolling_drawdown_window_3() -> None:
+    values = [100.0, 110.0, 105.0, 120.0, 90.0]
+    out = rolling_drawdown(values, window=3)
+    assert out[:2] == [None, None]
+    assert out[2] is not None
+    assert out[3] is not None
+    assert out[4] is not None
+    _assert_close(out[2], 105.0 / 110.0 - 1.0)
+    _assert_close(out[3], 0.0)
     _assert_close(out[4], 90.0 / 120.0 - 1.0)

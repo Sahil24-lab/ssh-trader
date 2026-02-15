@@ -3,6 +3,7 @@
 __all__ = [
     "backtest",
     "control",
+    "data",
     "guidance",
     "live",
     "nav",

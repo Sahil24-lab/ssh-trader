@@ -24,3 +24,4 @@ repos:
       - id: mypy
         additional_dependencies: []
         args: [src, tests]
+        pass_filenames: false
