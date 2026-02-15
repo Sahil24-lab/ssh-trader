@@ -95,3 +95,25 @@ For each PRD you generate:
 2. Add unit tests with fixed inputs under `tests/` (avoid network calls, randomness, and wall-clock time).
 3. Run `bash scripts/validate.sh` until green.
 4. If you use git, keep pre-commit enabled so `mypy`/formatting can’t regress.
+
+## Portfolio simulator (no execution)
+
+Run the event-driven portfolio simulator (carry + regime-gated directional overlay) over an OHLCV CSV:
+
+```bash
+.venv/bin/python -m ssh_trader.backtest.run --csv data/btc_1h.csv --timeframe 1h --fill-missing
+```
+
+Optional JSON config keys (all optional):
+
+```json
+{
+  "data": {"timeframe": "1h", "fill_missing": true},
+  "guidance": {"aggressiveness": 0.5},
+  "risk": {"leverage_cap": 1.5, "venue_cap_frac": 0.3, "max_drawdown": 0.2, "kill_switch_action": "carry_only"},
+  "nav": {"long_ma_window": 200, "rv_window": 20, "vol_percentile_window": 252, "confirm_bars": 3},
+  "compression": {"atr_window": 14, "contraction_lookback": 50, "vol_pct_window": 252, "range_window": 50},
+  "sim": {"initial_nav": 1000000.0, "carry_funding_freq_hours": 8, "liquidation_buffer": 0.1, "target_dir_vol": 0.2},
+  "fees": {"taker_fee_bps": 5.0, "slippage_bps_at_1x_nav": 10.0}
+}
+```

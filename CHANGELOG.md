@@ -54,3 +54,15 @@ All notable changes to this repository are documented here.
 - Added one-command validation script `scripts/validate.sh` (pytest + mypy + ruff/black when installed), preferring `.venv/bin/python` to avoid conda/PATH conflicts.
 - Added GitHub Actions validation workflow `.github/workflows/validate.yml` (pytest + mypy + ruff + black).
 - Updated `README.md` with setup, replay usage, and validation workflow guidance.
+
+### PRD 2 — Portfolio simulator & guidance policy
+
+- Added deterministic guidance policy mapping regime → allocation bands in `src/ssh_trader/guidance/policy.py`.
+- Added risk governor in `src/ssh_trader/risk/governor.py` enforcing drawdown kill-switch and vol-spike de-risk (directional gating).
+- Added event-driven portfolio simulator in `src/ssh_trader/backtest/simulator.py`:
+  - carry engine (spot long + perp short), funding accrual, fees + slippage, liquidation buffer via effective leverage cap
+  - directional overlay gated by `Regime == RISK_ON` and compression expansion trigger
+  - hard leverage cap enforcement (including post-trade enforcement after costs)
+- Added backtest metrics in `src/ssh_trader/backtest/metrics.py` (CAGR, Sharpe, Sortino, max drawdown, win rate, exposure utilization, regime returns, funding/directional contribution).
+- Added runner CLI `src/ssh_trader/backtest/run.py` to simulate from OHLCV CSV and emit metrics.
+- Added unit tests: `tests/test_backtest_simulator.py`, `tests/test_guidance_policy.py`, `tests/test_risk_governor.py`.
