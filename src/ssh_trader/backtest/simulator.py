@@ -93,6 +93,10 @@ class TradeLifecycle:
     qty: float
     entry_price: float
     exit_price: float
+    nav_entry: float
+    nav_exit: float
+    nav_delta: float
+    nav_delta_pct: float | None
     pnl_price: float
     pnl_funding: float
     pnl_fees: float
@@ -273,6 +277,7 @@ def simulate_portfolio(
     dir_entry_idx = 0
     dir_entry_price = 0.0
     dir_entry_qty = 0.0
+    dir_entry_nav = sim_config.initial_nav
     dir_fee_accum = 0.0
     dir_slip_accum = 0.0
     dir_funding_accum = 0.0
@@ -281,10 +286,12 @@ def simulate_portfolio(
     carry_entry_idx = 0
     carry_entry_price = 0.0
     carry_entry_qty = 0.0
+    carry_entry_nav = sim_config.initial_nav
     carry_fee_accum = 0.0
     carry_slip_accum = 0.0
     carry_price_accum = 0.0
     carry_funding_accum = 0.0
+    prev_regime = regimes[0]
     for i, ts in enumerate(frame.ts):
         price = frame.close[i]
         if price <= 0.0 or not math.isfinite(price):
@@ -462,6 +469,7 @@ def simulate_portfolio(
             dir_entry_idx = i
             dir_entry_price = price
             dir_entry_qty = new_dir_qty
+            dir_entry_nav = _nav(state, price)
             dir_fee_accum = 0.0
             dir_slip_accum = 0.0
             dir_funding_accum = 0.0
@@ -470,6 +478,9 @@ def simulate_portfolio(
             pnl_price_trade = (price - dir_entry_price) * dir_entry_qty
             pnl_total = pnl_price_trade + dir_funding_accum - dir_fee_accum - dir_slip_accum
             side_label: Literal["long", "short"] = "long" if dir_entry_qty > 0 else "short"
+            nav_exit = _nav(state, price)
+            nav_delta = nav_exit - dir_entry_nav
+            nav_delta_pct = None if dir_entry_nav == 0 else nav_delta / dir_entry_nav
             lifecycles.append(
                 TradeLifecycle(
                     open_ts=dir_entry_ts,
@@ -479,6 +490,10 @@ def simulate_portfolio(
                     qty=abs(dir_entry_qty),
                     entry_price=dir_entry_price,
                     exit_price=price,
+                    nav_entry=dir_entry_nav,
+                    nav_exit=nav_exit,
+                    nav_delta=nav_delta,
+                    nav_delta_pct=nav_delta_pct,
                     pnl_price=pnl_price_trade,
                     pnl_funding=dir_funding_accum,
                     pnl_fees=dir_fee_accum,
@@ -498,6 +513,9 @@ def simulate_portfolio(
             pnl_price_trade = (price - dir_entry_price) * dir_entry_qty
             pnl_total = pnl_price_trade + dir_funding_accum - dir_fee_accum - dir_slip_accum
             side_label2: Literal["long", "short"] = "long" if dir_entry_qty > 0 else "short"
+            nav_exit = _nav(state, price)
+            nav_delta = nav_exit - dir_entry_nav
+            nav_delta_pct = None if dir_entry_nav == 0 else nav_delta / dir_entry_nav
             lifecycles.append(
                 TradeLifecycle(
                     open_ts=dir_entry_ts,
@@ -507,6 +525,10 @@ def simulate_portfolio(
                     qty=abs(dir_entry_qty),
                     entry_price=dir_entry_price,
                     exit_price=price,
+                    nav_entry=dir_entry_nav,
+                    nav_exit=nav_exit,
+                    nav_delta=nav_delta,
+                    nav_delta_pct=nav_delta_pct,
                     pnl_price=pnl_price_trade,
                     pnl_funding=dir_funding_accum,
                     pnl_fees=dir_fee_accum,
@@ -519,6 +541,7 @@ def simulate_portfolio(
             dir_entry_idx = i
             dir_entry_price = price
             dir_entry_qty = new_dir_qty
+            dir_entry_nav = _nav(state, price)
             dir_fee_accum = 0.0
             dir_slip_accum = 0.0
             dir_funding_accum = 0.0
@@ -529,6 +552,7 @@ def simulate_portfolio(
             carry_entry_idx = i
             carry_entry_price = price
             carry_entry_qty = new_carry_qty
+            carry_entry_nav = _nav(state, price)
             carry_fee_accum = 0.0
             carry_slip_accum = 0.0
             carry_price_accum = 0.0
@@ -536,6 +560,9 @@ def simulate_portfolio(
 
         if carry_open and abs(prev_carry_qty) > 1e-12 and abs(new_carry_qty) <= 1e-12:
             pnl_total = carry_price_accum + carry_funding_accum - carry_fee_accum - carry_slip_accum
+            nav_exit = _nav(state, price)
+            nav_delta = nav_exit - carry_entry_nav
+            nav_delta_pct = None if carry_entry_nav == 0 else nav_delta / carry_entry_nav
             lifecycles.append(
                 TradeLifecycle(
                     open_ts=carry_entry_ts,
@@ -545,6 +572,10 @@ def simulate_portfolio(
                     qty=abs(carry_entry_qty),
                     entry_price=carry_entry_price,
                     exit_price=price,
+                    nav_entry=carry_entry_nav,
+                    nav_exit=nav_exit,
+                    nav_delta=nav_delta,
+                    nav_delta_pct=nav_delta_pct,
                     pnl_price=carry_price_accum,
                     pnl_funding=carry_funding_accum,
                     pnl_fees=carry_fee_accum,
@@ -554,6 +585,42 @@ def simulate_portfolio(
                 )
             )
             carry_open = False
+
+        if carry_open and regimes[i] != prev_regime:
+            pnl_total = carry_price_accum + carry_funding_accum - carry_fee_accum - carry_slip_accum
+            nav_exit = _nav(state, price)
+            nav_delta = nav_exit - carry_entry_nav
+            nav_delta_pct = None if carry_entry_nav == 0 else nav_delta / carry_entry_nav
+            lifecycles.append(
+                TradeLifecycle(
+                    open_ts=carry_entry_ts,
+                    close_ts=ts,
+                    kind="carry",
+                    side="carry",
+                    qty=abs(carry_entry_qty),
+                    entry_price=carry_entry_price,
+                    exit_price=price,
+                    nav_entry=carry_entry_nav,
+                    nav_exit=nav_exit,
+                    nav_delta=nav_delta,
+                    nav_delta_pct=nav_delta_pct,
+                    pnl_price=carry_price_accum,
+                    pnl_funding=carry_funding_accum,
+                    pnl_fees=carry_fee_accum,
+                    pnl_slippage=carry_slip_accum,
+                    pnl_total=pnl_total,
+                    bars_held=i - carry_entry_idx,
+                )
+            )
+            carry_entry_ts = ts
+            carry_entry_idx = i
+            carry_entry_price = price
+            carry_entry_qty = new_carry_qty
+            carry_entry_nav = _nav(state, price)
+            carry_fee_accum = 0.0
+            carry_slip_accum = 0.0
+            carry_price_accum = 0.0
+            carry_funding_accum = 0.0
 
         nav_after = _nav(state, price)
         gross = _gross_exposure(state, price)
@@ -581,6 +648,7 @@ def simulate_portfolio(
             )
         )
         prev_price = price
+        prev_regime = regimes[i]
 
     return SimulationResult(bars=bars, trades=trades, lifecycles=lifecycles)
 

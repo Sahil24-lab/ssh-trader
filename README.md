@@ -232,6 +232,7 @@ Backtest trades vs open/close:
   (spot + perp legs).
 - Trade grouping into explicit **open/close** lifecycles is now available via the lifecycle
   output CSV and the dashboard lifecycle table (both directional and carry).
+- Carry lifecycles are closed/reopened on regime changes to make portfolio transitions visible.
 - Directional lifecycles can be sparse if RISK_ON + expansion triggers are rare.
 
 1. Fetch data:

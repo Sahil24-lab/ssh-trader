@@ -695,8 +695,16 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
                   PnL %
                   <span
                     class="info"
-                    data-tip="Directional trade PnL / (entry price * qty)."
+                    data-tip="Lifecycle PnL / (entry price * qty)."
                   >i</span>
+                </th>
+                <th>
+                  NAV Δ (USD)
+                  <span class="info" data-tip="NAV change from entry to exit.">i</span>
+                </th>
+                <th>
+                  NAV Δ %
+                  <span class="info" data-tip="NAV change percentage from entry to exit.">i</span>
                 </th>
                 <th>
                   Bars
@@ -1703,6 +1711,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           const pnl = toNum(r.pnl_total);
           const denom = (qty != null && entry != null) ? (qty * entry) : null;
           const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
+          const navDeltaUsd = toNum(r.nav_delta);
+          const navDeltaPct = toNum(r.nav_delta_pct);
           return `<tr data-key="${{key}}" class="${{rowCls}}">
             <td class="mono">${{r.open_ts || ""}}</td>
             <td class="mono">${{r.close_ts || ""}}</td>
@@ -1713,6 +1723,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             <td class="mono">${{fmt3(r.exit_price || "")}}</td>
             <td class="mono">${{fmt2(r.pnl_total || "")}}</td>
             <td class="mono">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
+            <td class="mono">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
+            <td class="mono">${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}</td>
             <td class="mono">${{r.bars_held || ""}}</td>
           </tr>`;
           }}).join("");
@@ -1754,11 +1766,13 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         kv.push(["Entry", fmt3(lc.entry_price || "")]);
         kv.push(["Exit", fmt3(lc.exit_price || "")]);
         kv.push(["PnL (USD)", fmt2(lc.pnl_total || "")]);
+        kv.push(["PnL %", pnlPct == null ? "" : fmtPct(pnlPct)]);
+        kv.push(["NAV Δ (USD)", fmt2(lc.nav_delta || "")]);
+        kv.push(["NAV Δ %", lc.nav_delta_pct == null ? "" : fmtPct(lc.nav_delta_pct)]);
         kv.push(["PnL Price", fmt2(lc.pnl_price || "")]);
         kv.push(["PnL Funding", fmt2(lc.pnl_funding || "")]);
         kv.push(["PnL Fees", fmt2(lc.pnl_fees || "")]);
         kv.push(["PnL Slippage", fmt2(lc.pnl_slippage || "")]);
-        kv.push(["PnL %", pnlPct == null ? "" : fmtPct(pnlPct)]);
         kv.push(["Bars held", lc.bars_held || ""]);
 
         const taOpen = TA_BY_TS.get(openTs);
@@ -1844,6 +1858,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         "Exit": "Exit price for the lifecycle trade.",
         "PnL (USD)": "Total lifecycle PnL (price + funding - fees - slippage).",
         "PnL %": "Lifecycle PnL / (entry price * qty).",
+        "NAV Δ (USD)": "NAV change from entry to exit.",
+        "NAV Δ %": "NAV change percentage from entry to exit.",
         "PnL Price": "Price-driven PnL for the lifecycle.",
         "PnL Funding": "Funding component for the lifecycle.",
         "PnL Fees": "Fees paid during the lifecycle.",

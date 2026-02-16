@@ -36,6 +36,7 @@ All notable changes to this repository are documented here.
 - Added directional + carry trade lifecycle output (open/close) and dashboard table with per-trade PnL
   (`src/ssh_trader/backtest/simulator.py`, `src/ssh_trader/backtest/run.py`,
   `scripts/build_dashboard.py`).
+- Carry lifecycle boundaries now close/reopen on regime changes for clearer portfolio transitions.
 - Added TA features passthrough to the local dashboard API server (`scripts/serve_dashboard.py`).
 - Updated documentation for the new fetch/E2E workflow (`README.md`).
 
