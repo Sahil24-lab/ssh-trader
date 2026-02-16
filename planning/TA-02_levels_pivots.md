@@ -14,10 +14,11 @@ Replace subjective “looks like a level” with deterministic rules:
 ## In Scope / Out of Scope
 
 ### In scope
-- Pivot high/low detection on a chosen timeframe (default: 1H).
+- Pivot high/low detection on a chosen timeframe (default: 4H for levels, 1H for execution).
 - Level clustering by band width tied to ATR.
 - Level scoring and selection.
 - Explainable outputs (touch count, reaction strength, recency).
+- Per-bar nearest-level proximity output (distance in ATR and kind).
 
 ### Out of scope
 - Advanced market structure labels (BOS/CHOCH) (later).
@@ -29,6 +30,7 @@ Replace subjective “looks like a level” with deterministic rules:
    - Pivot High at t if `high[t]` is maximum in window `[t-k, …, t+k]`.
    - Pivot Low similarly.
    - Configurable `k` (default 3).
+   - Must support deriving pivots from 4H while later systems trade on 1H.
 
 2. **Level banding**
    - Band width: `band = band_atr_mult * ATR14`
@@ -70,11 +72,13 @@ Replace subjective “looks like a level” with deterministic rules:
 
 ### Optional debug output (CSV)
 - `out/ta_levels_{symbol}.csv` with per-level fields.
+- `out/ta_level_proximity_{symbol}.csv` with per-bar nearest level + distance in ATR.
 
 ## Implementation Notes
 - Use ATR from existing indicator utilities.
 - Start with simple banding; avoid “perfect clustering” (overfit risk).
 - Ensure the algorithm does not use future bars (no lookahead).
+- Inputs should accept `data/*_4h.csv` or precomputed ATR series from `out/ta_features.csv`.
 
 ## Tests
 - Pivot test on fixed highs/lows with known pivot points.

@@ -12,6 +12,13 @@ from ssh_trader.data.clean import fill_missing_intervals, normalize_and_sort
 from ssh_trader.data.io_csv import load_ohlcv_csv
 from ssh_trader.data.model import OHLCVFrame, parse_timeframe
 from ssh_trader.nav.indicators import atr, ema, sma
+from ssh_trader.ta.levels import (
+    LevelClusterConfig,
+    LevelScoreConfig,
+    PivotConfig,
+    build_levels,
+    compute_level_proximity,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +35,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--vol-window", type=int, default=50, help="Volume zscore window (default: 50).")
     p.add_argument("--pivot-k", type=int, default=3, help="Pivot half-window k (default: 3).")
+    p.add_argument(
+        "--levels-top-n",
+        type=int,
+        default=5,
+        help="Top-N support and resistance levels to keep (default: 5).",
+    )
+    p.add_argument(
+        "--levels-band-atr",
+        type=float,
+        default=0.3,
+        help="Level band width in ATR units (default: 0.3).",
+    )
+    p.add_argument(
+        "--levels-min-touches",
+        type=int,
+        default=3,
+        help="Minimum touches to keep a level (default: 3).",
+    )
     p.add_argument(
         "--breakout-atr-x",
         type=float,
@@ -225,9 +250,11 @@ def main(argv: list[str] | None = None) -> int:
     frame = _load_frame(args.csv_1h, timeframe="1h", fill_missing=args.fill_missing)
 
     bias_map: dict[int, int] = {}
+    frame_for_levels = frame
     if args.csv_4h is not None and args.csv_4h.exists():
         frame_4h = _load_frame(args.csv_4h, timeframe="4h", fill_missing=False)
         bias_map = _bias_from_4h(frame_4h)
+        frame_for_levels = frame_4h
 
     atr14 = atr(frame.high, frame.low, frame.close, window=14)
     atr_mean50 = _rolling_mean(atr14, window=50)
@@ -273,6 +300,27 @@ def main(argv: list[str] | None = None) -> int:
 
     piv_hi, piv_lo = _pivot_flags(frame.high, frame.low, k=args.pivot_k)
     body, lower_wick, upper_wick = _wick_stats(frame.open, frame.high, frame.low, frame.close)
+
+    levels = build_levels(
+        frame_for_levels.high,
+        frame_for_levels.low,
+        frame_for_levels.close,
+        atr_series=atr(
+            frame_for_levels.high,
+            frame_for_levels.low,
+            frame_for_levels.close,
+            window=14,
+        ),
+        pivot_config=PivotConfig(k=args.pivot_k),
+        cluster_config=LevelClusterConfig(
+            band_atr_mult=args.levels_band_atr,
+            min_touches=args.levels_min_touches,
+        ),
+        score_config=LevelScoreConfig(top_n=args.levels_top_n),
+    )
+    prox = compute_level_proximity(frame.close, atr14, levels)
+    support_levels = [lvl for lvl in levels if lvl.kind == "support"]
+    resistance_levels = [lvl for lvl in levels if lvl.kind == "resistance"]
 
     breakout_long: list[bool] = [False] * len(frame)
     breakout_short: list[bool] = [False] * len(frame)
@@ -383,12 +431,22 @@ def main(argv: list[str] | None = None) -> int:
                 "sweep_reclaim_short",
                 "confluence_long",
                 "confluence_short",
+                "levels_support_count",
+                "levels_resistance_count",
+                "nearest_level_kind",
+                "nearest_level_center",
+                "nearest_level_distance",
+                "nearest_level_distance_atr",
             ]
         )
         for i, ts in enumerate(frame.ts):
             epoch = int(ts.replace(tzinfo=timezone.utc).timestamp())
             bucket4 = (epoch // (4 * 3600)) * (4 * 3600)
             b = bias_map.get(bucket4) if bias_map else None
+            prox_i = prox[i]
+            lvl_center = ""
+            if prox_i.level_index is not None:
+                lvl_center = levels[prox_i.level_index].center
             w.writerow(
                 [
                     ts.isoformat().replace("+00:00", "Z"),
@@ -413,6 +471,12 @@ def main(argv: list[str] | None = None) -> int:
                     "1" if sweep_reclaim_short[i] else "0",
                     "" if confluence_long[i] is None else confluence_long[i],
                     "" if confluence_short[i] is None else confluence_short[i],
+                    len(support_levels),
+                    len(resistance_levels),
+                    "" if prox_i.level_kind is None else prox_i.level_kind,
+                    "" if lvl_center == "" else lvl_center,
+                    "" if prox_i.distance_price is None else prox_i.distance_price,
+                    "" if prox_i.distance_atr is None else prox_i.distance_atr,
                 ]
             )
 

@@ -24,6 +24,11 @@ All notable changes to this repository are documented here.
   dump (`scripts/dump_ta_features.py`, output `out/ta_features.csv`).
 - Rewired the end-to-end runner to use the TA-01 pipeline and emit TA inspection artifacts
   (`scripts/run_e2e_hyperliquid.sh`).
+- Added TA-02 levels/pivots module with deterministic pivot detection, band clustering, scoring, and
+  per-bar nearest-level proximity (`src/ssh_trader/ta/levels.py`).
+- Wired TA-02 levels into TA feature dump with proximity columns in `out/ta_features.csv`
+  (`scripts/dump_ta_features.py`).
+- Added TA-02 unit tests for pivots, clustering, scoring, and proximity (`tests/test_ta_levels.py`).
 - Updated documentation for the new fetch/E2E workflow (`README.md`).
 
 ## 0.1.0 — 2026-02-15
