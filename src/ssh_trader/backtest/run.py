@@ -53,6 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional metrics CSV output.",
     )
+    p.add_argument(
+        "--output-bars",
+        type=Path,
+        default=None,
+        help="Optional per-bar CSV output for visualization.",
+    )
+    p.add_argument(
+        "--output-trades",
+        type=Path,
+        default=None,
+        help="Optional trade event CSV output for visualization.",
+    )
     return p
 
 
@@ -193,6 +205,62 @@ def main(argv: list[str] | None = None) -> int:
             w = csv.writer(f)
             w.writerow(["metric", "value"])
             w.writerows(rows)
+
+    if args.output_bars is not None:
+        args.output_bars.parent.mkdir(parents=True, exist_ok=True)
+        with args.output_bars.open("w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(
+                [
+                    "timestamp",
+                    "nav",
+                    "regime",
+                    "carry_notional",
+                    "directional_notional",
+                    "gross_exposure",
+                    "leverage",
+                    "pnl_price",
+                    "pnl_funding",
+                    "pnl_fees",
+                    "pnl_slippage",
+                    "kill_switch_active",
+                ]
+            )
+            for bar in result.bars:
+                w.writerow(
+                    [
+                        bar.ts.isoformat().replace("+00:00", "Z"),
+                        bar.nav,
+                        bar.regime.value,
+                        bar.carry_notional,
+                        bar.directional_notional,
+                        bar.gross_exposure,
+                        bar.leverage,
+                        bar.pnl_price,
+                        bar.pnl_funding,
+                        bar.pnl_fees,
+                        bar.pnl_slippage,
+                        int(bar.kill_switch_active),
+                    ]
+                )
+
+    if args.output_trades is not None:
+        args.output_trades.parent.mkdir(parents=True, exist_ok=True)
+        with args.output_trades.open("w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["ts", "leg", "qty_delta", "price", "notional", "fee", "slippage"])
+            for t in result.trades:
+                w.writerow(
+                    [
+                        t.ts.isoformat().replace("+00:00", "Z"),
+                        t.leg,
+                        t.qty_delta,
+                        t.price,
+                        t.notional,
+                        t.fee,
+                        t.slippage,
+                    ]
+                )
 
     return 0
 

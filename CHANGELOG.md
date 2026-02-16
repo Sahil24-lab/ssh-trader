@@ -4,6 +4,28 @@ All notable changes to this repository are documented here.
 
 ## Unreleased
 
+- Fixed backtest NAV accounting for perp positions by marking perps to cash PnL each bar (instead of
+  incorrectly treating perps like spot notional), stabilizing NAV/leverage charts and avoiding
+  spurious early kill-switch triggers (`src/ssh_trader/backtest/simulator.py`).
+- Improved HTML dashboard interactivity and readability:
+  - values rounded to 3dp
+  - richer hover tooltips (NAV/leverage + attribution fields)
+  - smarter time-axis labels when zooming
+  - exposure (%NAV) chart and trade/bar-PnL coloring
+  - "Rerun Simulation" command generator panel
+  - trade markers on charts + regime-change dots (`scripts/build_dashboard.py`)
+- Increased default E2E Hyperliquid lookback window to 180 days for more stable feature warmup and
+  more informative results (`scripts/run_e2e_hyperliquid.sh`).
+- Added TA-01 multi-timeframe data ingest for Hyperliquid (1H candles + funding) with deterministic
+  missing-bar fill and deterministic 4H resample output (`scripts/fetch_hyperliquid_multitf.py`).
+- Added gap-counting utility for interval integrity checks (`src/ssh_trader/data/gaps.py`) with unit
+  tests (`tests/test_data_gaps.py`).
+- Added deterministic CSV resample helper (`scripts/resample_ohlcv_csv.py`) and TA feature inspection
+  dump (`scripts/dump_ta_features.py`, output `out/ta_features.csv`).
+- Rewired the end-to-end runner to use the TA-01 pipeline and emit TA inspection artifacts
+  (`scripts/run_e2e_hyperliquid.sh`).
+- Updated documentation for the new fetch/E2E workflow (`README.md`).
+
 ## 0.1.0 — 2026-02-15
 
 ### Navigation (research harness)
@@ -66,3 +88,33 @@ All notable changes to this repository are documented here.
 - Added backtest metrics in `src/ssh_trader/backtest/metrics.py` (CAGR, Sharpe, Sortino, max drawdown, win rate, exposure utilization, regime returns, funding/directional contribution).
 - Added runner CLI `src/ssh_trader/backtest/run.py` to simulate from OHLCV CSV and emit metrics.
 - Added unit tests: `tests/test_backtest_simulator.py`, `tests/test_guidance_policy.py`, `tests/test_risk_governor.py`.
+
+## 0.2.0 — 2026-02-15
+
+- Added deterministic guidance policy that maps `Regime` labels to configurable allocation bands (`src/ssh_trader/guidance/policy.py`).
+- Added configurable risk governor enforcing drawdown kill switches, directional gating, venue caps, and leverage caps (`src/ssh_trader/risk/governor.py`).
+- Added an event-driven portfolio simulator with carry engine, directional overlay, funding, fees/slippage, liquidation buffer enforcement, and trade logging (`src/ssh_trader/backtest/simulator.py`).
+- Added performance metrics collection (CAGR, Sharpe, Sortino, drawdown, regime returns, funding vs directional contributions) (`src/ssh_trader/backtest/metrics.py`).
+- Added CLI runner to replay OHLCV data through the simulator and emit metrics (`src/ssh_trader/backtest/run.py`).
+- Documented simulator usage/tests in README and added CHANGELOG entry.
+
+## 0.3.0 — 2026-02-15
+
+- Added venue execution abstraction with required interface methods in `src/ssh_trader/live/venue.py`.
+- Added Hyperliquid shadow adapter stub with simulated responses, configurable latency, and configurable slippage in `src/ssh_trader/live/hyperliquid_stub.py`.
+- Added control engine with rebalance scheduling, order sizing, slippage guard, MEV-aware routing placeholder, and partial-fill carryover in `src/ssh_trader/control/engine.py`.
+- Added shadow runner that produces intended orders and hypothetical fills without signing/keys in `src/ssh_trader/live/shadow_runner.py`.
+- Added refusal controls for leverage cap, drawdown/kill-switch mode, volatility spike gating, and oracle divergence thresholds via control+risk integration.
+- Added tests for stub behavior, control refusals/partial fills, and shadow logging in `tests/test_hyperliquid_stub.py`, `tests/test_control_engine.py`, and `tests/test_shadow_runner.py`.
+
+## 0.4.0 — 2026-02-15
+
+- Added Hyperliquid historical data fetch module in `src/ssh_trader/data/hyperliquid_history.py` with:
+  - candle snapshot retrieval
+  - funding history retrieval
+  - UTC timestamp normalization
+  - merged output rows with schema `timestamp,open,high,low,close,volume,funding,open_interest`
+- Added CLI fetch script `scripts/fetch_hyperliquid_history.py`.
+- Added backtest bars export in `src/ssh_trader/backtest/run.py` via `--output-bars` for downstream visualization.
+- Added modern dark-mode, self-contained report builder in `scripts/build_dashboard.py` for NAV/leverage/metrics/shadow outcomes.
+- Added tests for time parsing/funding merge behavior in `tests/test_hyperliquid_history.py`.

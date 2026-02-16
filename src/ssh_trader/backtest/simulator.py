@@ -111,12 +111,8 @@ class SimulationResult:
 
 
 def _nav(state: PortfolioState, price: float) -> float:
-    # Perp is marked-to-market: its PnL is embedded via qty * price.
-    return (
-        state.cash
-        + state.carry_spot_qty * price
-        + (state.carry_perp_qty + state.dir_perp_qty) * price
-    )
+    # Spot is a paid asset (cash outlay). Perps are marked-to-market via cash PnL updates.
+    return state.cash + state.carry_spot_qty * price
 
 
 def _gross_exposure(state: PortfolioState, price: float) -> float:
@@ -269,8 +265,10 @@ def simulate_portfolio(
         if i > 0:
             dpx = price - prev_price
             pnl_dir_price = state.dir_perp_qty * dpx
-            pnl_carry_price = (state.carry_spot_qty + state.carry_perp_qty) * dpx
+            pnl_carry_price = (state.carry_spot_qty * dpx) + (state.carry_perp_qty * dpx)
             pnl_price = pnl_dir_price + pnl_carry_price
+            # Perp PnL is realized continuously into cash at each bar close.
+            state.cash += (state.carry_perp_qty + state.dir_perp_qty) * dpx
 
             if frame.funding is not None:
                 funding_accum += frame.funding[i]
