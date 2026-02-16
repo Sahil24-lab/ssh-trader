@@ -39,6 +39,7 @@ All notable changes to this repository are documented here.
 - Carry lifecycle boundaries now close/reopen on regime changes for clearer portfolio transitions.
 - Added lifecycle NAV deltas, color-coded PnL/NAV columns, and a local price snapshot around
   selected trades (`scripts/build_dashboard.py`).
+- Snapshot now marks entry/exit with colored dots and shows hover callouts (`scripts/build_dashboard.py`).
 - Added TA features passthrough to the local dashboard API server (`scripts/serve_dashboard.py`).
 - Updated documentation for the new fetch/E2E workflow (`README.md`).
 

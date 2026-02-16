@@ -1822,8 +1822,22 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         }}
         snapStart = tsToIdx.get(openTs);
         snapEnd = tsToIdx.get(closeTs);
-        if (snapStart != null) snapMarkers.push(snapStart);
-        if (snapEnd != null) snapMarkers.push(snapEnd);
+        if (snapStart != null) {{
+          snapMarkers.push({{
+            idx: snapStart,
+            kind: "entry",
+            label: "Entry",
+            price: lc.entry_price,
+          }});
+        }}
+        if (snapEnd != null) {{
+          snapMarkers.push({{
+            idx: snapEnd,
+            kind: "exit",
+            label: "Exit",
+            price: lc.exit_price,
+          }});
+        }}
       }} else if (tradeTs) {{
         const trade = trades.find(r => (r.ts || r.timestamp || "") === tradeTs);
         if (!trade) {{
@@ -1866,7 +1880,14 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           kv.push(["TA features", "n/a (no matching timestamp)"]);
         }}
         snapStart = tsToIdx.get(tradeTs);
-        if (snapStart != null) snapMarkers.push(snapStart);
+        if (snapStart != null) {{
+          snapMarkers.push({{
+            idx: snapStart,
+            kind: "entry",
+            label: "Trade",
+            price: trade.price,
+          }});
+        }}
       }} else {{
         panel.innerHTML = '<div class="muted">Click a trade row to populate this panel.</div>';
         return;
@@ -1943,16 +1964,26 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       const e = Math.min(bars.length - 1, centerIdx + span);
       const series = [];
       for (let i = s; i <= e; i++) {{
-        series.push({{ t: bars[i].timestamp, y: toNum(bars[i].price), meta: bars[i] }});
+        series.push({{
+          t: bars[i].timestamp,
+          y: toNum(bars[i].price),
+          meta: bars[i],
+          idx: i - s,
+        }});
       }}
       const localMarkers = markers
-        .filter(idx => idx != null && idx >= s && idx <= e)
-        .map(idx => idx - s);
-      const tip = document.getElementById("pxTip");
+        .filter(m => m != null && m.idx >= s && m.idx <= e)
+        .map(m => ({{
+          idx: m.idx - s,
+          kind: m.kind,
+          label: m.label,
+          price: m.price,
+        }}));
       const tmpTip = document.createElement("div");
       tmpTip.className = "tooltip mono";
       tmpTip.style.display = "none";
       canvas.parentNode.appendChild(tmpTip);
+      const markerByIdx = new Map(localMarkers.map(m => [m.idx, m]));
       makeChart(
         canvas,
         tmpTip,
@@ -1963,9 +1994,54 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           yLabel: "",
           yFormat: fmt2,
           markers: [],
-          highlightIdxs: localMarkers,
+          highlightIdxs: localMarkers.map(m => m.idx),
+          tooltip: (row) => {{
+            const mk = markerByIdx.get(row.idx);
+            const lines = [row.t, `Price=${{fmt2(row.y)}}`];
+            if (mk) {{
+              lines.push(`${{mk.label}} @ ${{fmt2(mk.price)}}`);
+            }}
+            return lines.join("\\n");
+          }},
         }}
       );
+      drawSnapshotMarkers(canvas, series, localMarkers);
+    }}
+
+    function drawSnapshotMarkers(canvas, series, markers) {{
+      if (!canvas || !markers || markers.length === 0) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      const x0 = 58;
+      const y0 = 18;
+      const x1 = w - 12;
+      const y1 = h - 44;
+      const vals = series.map(s => s.y).filter(v => v != null);
+      if (!vals.length) return;
+      const yMin = Math.min(...vals);
+      const yMax = Math.max(...vals);
+      const yFor = (v) => {{
+        const t = (v - yMin) / (yMax - yMin);
+        return y1 - t * (y1 - y0);
+      }};
+      const xFor = (i) => {{
+        const t = i / Math.max(1, (series.length - 1));
+        return x0 + t * (x1 - x0);
+      }};
+      for (const m of markers) {{
+        const row = series[m.idx];
+        if (!row || row.y == null) continue;
+        const cx = xFor(m.idx);
+        const cy = yFor(row.y);
+        const col = m.kind === "exit" ? "rgba(255,107,122,0.95)" : "rgba(74,212,138,0.95)";
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }}
     }}
 
     function resetCanvas(id) {{
