@@ -336,6 +336,14 @@ def _build_html(
     .inspect .wide {{
       grid-column: 1 / -1;
     }}
+    .snapshot {{
+      height: 160px;
+      border-radius: 12px;
+      border: 1px solid var(--grid);
+      background: rgba(255, 255, 255, 0.02);
+      position: relative;
+      overflow: hidden;
+    }}
     table {{ width: 100%; border-collapse: collapse; font-size: 0.86rem; }}
     th, td {{ text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--grid); }}
     th {{ position: sticky; top: 0; background: var(--panel0); z-index: 2; }}
@@ -349,6 +357,8 @@ def _build_html(
     .on {{ background: rgba(74,212,138,0.18); color: var(--green); }}
     .off {{ background: rgba(255,107,122,0.18); color: var(--red); }}
     .neutral {{ background: rgba(77,211,255,0.18); color: var(--accent); }}
+    .pos {{ color: var(--green); font-weight: 700; }}
+    .neg {{ color: var(--red); font-weight: 700; }}
     .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}
     @media (max-width: 980px) {{ .grid {{ grid-template-columns: repeat(2, 1fr); }} }}
     @media (max-width: 640px) {{ .grid {{ grid-template-columns: 1fr; }} }}
@@ -634,6 +644,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         </div>
         <div id="tradeInspect" class="inspect">
           <div class="muted">Click a trade row to populate this panel.</div>
+        </div>
+        <div class="snapshot">
+          <canvas id="snapCanvas"></canvas>
         </div>
       </div>
 
@@ -1671,6 +1684,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         const navDeltaUsd = (navDeltaUsdByTs && ts) ? navDeltaUsdByTs.get(ts) : null;
         const navDeltaPct = (navDeltaPctByTs && ts) ? navDeltaPctByTs.get(ts) : null;
         const barCls = (barPnl != null && barPnl < 0) ? "off" : "on";
+        const navCls = (navDeltaUsd != null && navDeltaUsd < 0) ? "neg" : "pos";
+        const navPctCls = (navDeltaPct != null && navDeltaPct < 0) ? "neg" : "pos";
         const rowCls = ts === selectedTs ? "row-selected" : "";
         return `<tr data-ts="${{ts}}" class="${{rowCls}}">
           <td class="mono">${{ts}}</td>
@@ -1682,8 +1697,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           <td class="mono">${{fmt3(r.fee || "")}}</td>
           <td class="mono">${{fmt3(r.slippage || "")}}</td>
           <td><span class="pill ${{barCls}}">${{barPnl == null ? "" : fmt2(barPnl)}}</span></td>
-          <td class="mono">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
-          <td class="mono">${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}</td>
+          <td class="mono ${{navCls}}">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
+          <td class="mono ${{navPctCls}}">${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}</td>
         </tr>`;
       }}).join("");
 
@@ -1699,34 +1714,40 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         if (lRows.length === 0) {{
           lBody.innerHTML = (
             `<tr>` +
-            `<td class="mono" colspan="10">No lifecycle trades in this window.</td>` +
+            `<td class="mono" colspan="12">No lifecycle trades in this window.</td>` +
             `</tr>`
           );
         }} else {{
           lBody.innerHTML = lRows.map(r => {{
-          const key = `${{r.open_ts}}|${{r.close_ts}}`;
-          const rowCls = key === selectedKey ? "row-selected" : "";
-          const qty = toNum(r.qty);
-          const entry = toNum(r.entry_price);
-          const pnl = toNum(r.pnl_total);
-          const denom = (qty != null && entry != null) ? (qty * entry) : null;
-          const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
-          const navDeltaUsd = toNum(r.nav_delta);
-          const navDeltaPct = toNum(r.nav_delta_pct);
-          return `<tr data-key="${{key}}" class="${{rowCls}}">
-            <td class="mono">${{r.open_ts || ""}}</td>
-            <td class="mono">${{r.close_ts || ""}}</td>
-            <td>${{r.kind || ""}}</td>
-            <td>${{r.side || ""}}</td>
-            <td class="mono">${{fmt6(r.qty || "")}}</td>
-            <td class="mono">${{fmt3(r.entry_price || "")}}</td>
-            <td class="mono">${{fmt3(r.exit_price || "")}}</td>
-            <td class="mono">${{fmt2(r.pnl_total || "")}}</td>
-            <td class="mono">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
-            <td class="mono">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
-            <td class="mono">${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}</td>
-            <td class="mono">${{r.bars_held || ""}}</td>
-          </tr>`;
+            const key = `${{r.open_ts}}|${{r.close_ts}}`;
+            const rowCls = key === selectedKey ? "row-selected" : "";
+            const qty = toNum(r.qty);
+            const entry = toNum(r.entry_price);
+            const pnl = toNum(r.pnl_total);
+            const denom = (qty != null && entry != null) ? (qty * entry) : null;
+            const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
+            const navDeltaUsd = toNum(r.nav_delta);
+            const navDeltaPct = toNum(r.nav_delta_pct);
+            const pnlCls = (pnl != null && pnl < 0) ? "neg" : "pos";
+            const pnlPctCls = (pnlPct != null && pnlPct < 0) ? "neg" : "pos";
+            const navCls = (navDeltaUsd != null && navDeltaUsd < 0) ? "neg" : "pos";
+            const navPctCls = (navDeltaPct != null && navDeltaPct < 0) ? "neg" : "pos";
+            return `<tr data-key="${{key}}" class="${{rowCls}}">
+              <td class="mono">${{r.open_ts || ""}}</td>
+              <td class="mono">${{r.close_ts || ""}}</td>
+              <td>${{r.kind || ""}}</td>
+              <td>${{r.side || ""}}</td>
+              <td class="mono">${{fmt6(r.qty || "")}}</td>
+              <td class="mono">${{fmt3(r.entry_price || "")}}</td>
+              <td class="mono">${{fmt3(r.exit_price || "")}}</td>
+              <td class="mono ${{pnlCls}}">${{fmt2(r.pnl_total || "")}}</td>
+              <td class="mono ${{pnlPctCls}}">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
+              <td class="mono ${{navCls}}">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
+              <td class="mono ${{navPctCls}}">
+                ${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}
+              </td>
+              <td class="mono">${{r.bars_held || ""}}</td>
+            </tr>`;
           }}).join("");
         }}
       }}
@@ -1737,13 +1758,19 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       barPnlByTs,
       navDeltaUsdByTs,
       navDeltaPctByTs,
-      lifecycles
+      lifecycles,
+      bars,
+      tsToIdx
     ) {{
       const panel = document.getElementById("tradeInspect");
       if (!panel) return;
       const lifecycleKey = window.__selectedLifecycleKey || "";
       const tradeTs = window.__selectedTradeTs || "";
       const kv = [];
+
+      let snapStart = null;
+      let snapEnd = null;
+      let snapMarkers = [];
 
       if (lifecycleKey) {{
         const [openTs, closeTs] = lifecycleKey.split("|");
@@ -1793,6 +1820,10 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           kv.push(["Close: Level center", taClose.nearest_level_center || ""]);
           kv.push(["Close: Level dist (ATR)", taClose.nearest_level_distance_atr || ""]);
         }}
+        snapStart = tsToIdx.get(openTs);
+        snapEnd = tsToIdx.get(closeTs);
+        if (snapStart != null) snapMarkers.push(snapStart);
+        if (snapEnd != null) snapMarkers.push(snapEnd);
       }} else if (tradeTs) {{
         const trade = trades.find(r => (r.ts || r.timestamp || "") === tradeTs);
         if (!trade) {{
@@ -1834,6 +1865,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         }} else {{
           kv.push(["TA features", "n/a (no matching timestamp)"]);
         }}
+        snapStart = tsToIdx.get(tradeTs);
+        if (snapStart != null) snapMarkers.push(snapStart);
       }} else {{
         panel.innerHTML = '<div class="muted">Click a trade row to populate this panel.</div>';
         return;
@@ -1890,6 +1923,49 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           `</div>`
         );
       }}).join("");
+
+      renderSnapshot(bars, snapStart, snapEnd, snapMarkers);
+    }}
+
+    function renderSnapshot(bars, startIdx, endIdx, markers) {{
+      const canvas = resetCanvas("snapCanvas");
+      if (!canvas) return;
+      if (bars.length === 0 || (startIdx == null && endIdx == null && markers.length === 0)) {{
+        const ctx = canvas.getContext("2d");
+        if (ctx) {{
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }}
+        return;
+      }}
+      const centerIdx = startIdx != null ? startIdx : (endIdx != null ? endIdx : markers[0]);
+      const span = 24;
+      const s = Math.max(0, centerIdx - span);
+      const e = Math.min(bars.length - 1, centerIdx + span);
+      const series = [];
+      for (let i = s; i <= e; i++) {{
+        series.push({{ t: bars[i].timestamp, y: toNum(bars[i].price), meta: bars[i] }});
+      }}
+      const localMarkers = markers
+        .filter(idx => idx != null && idx >= s && idx <= e)
+        .map(idx => idx - s);
+      const tip = document.getElementById("pxTip");
+      const tmpTip = document.createElement("div");
+      tmpTip.className = "tooltip mono";
+      tmpTip.style.display = "none";
+      canvas.parentNode.appendChild(tmpTip);
+      makeChart(
+        canvas,
+        tmpTip,
+        series,
+        {{
+          color: "rgba(255,255,255,0.85)",
+          xLabel: "",
+          yLabel: "",
+          yFormat: fmt2,
+          markers: [],
+          highlightIdxs: localMarkers,
+        }}
+      );
     }}
 
     function resetCanvas(id) {{
@@ -2229,7 +2305,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         barPnlByTs,
         navDeltaUsdByTs,
         navDeltaPctByTs,
-        lifecycles
+        lifecycles,
+        bars,
+        tsToIdx
       );
 
       const tBody = document.getElementById("tradeTable");
