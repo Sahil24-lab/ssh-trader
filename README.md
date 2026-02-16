@@ -172,6 +172,12 @@ One-command flow (fetch 1H+4H -> replay -> backtest -> shadow -> TA feature dump
 bash scripts/run_e2e_hyperliquid.sh
 ```
 
+Short command (runs the end-to-end pipeline and serves the dashboard API):
+
+```bash
+bash scripts/run_dashboard.sh
+```
+
 Useful options:
 
 ```bash
@@ -210,7 +216,8 @@ Dashboard tips:
 - Charts support drag-pan, wheel-zoom, and double-click to reset view.
 - The dashboard includes a **Rerun Simulation** panel:
   - If you open `out/dashboard.html` directly, it shows a CLI command you can copy/paste.
-  - If you want a real **Run Simulation** button, serve it locally:
+  - If you want a real **Run Simulation** button (and live leverage/exposure charts),
+    serve it locally:
 
 ```bash
 .venv/bin/python scripts/serve_dashboard.py --dashboard out/dashboard.html --csv data/hyperliquid_btc_1h.csv

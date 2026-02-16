@@ -857,10 +857,10 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         ctx.clearRect(0, 0, w, h);
 
         const [yMin, yMax] = extent();
-        const x0 = 46;
-        const y0 = 16;
+        const x0 = 58;
+        const y0 = 18;
         const x1 = w - 12;
-        const y1 = h - 28;
+        const y1 = h - 44;
 
         ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue("--grid").trim();
         ctx.lineWidth = 1;
@@ -883,10 +883,11 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           return y1 - t * (y1 - y0);
         }}
 
+        const yFmt = opts.yFormat || fmt3;
         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted").trim();
         ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-        ctx.fillText(fmt3(yMax), 8, y0 + 6);
-        ctx.fillText(fmt3(yMin), 8, y1 + 4);
+        ctx.fillText(yFmt(yMax), 8, y0 + 6);
+        ctx.fillText(yFmt(yMin), 8, y1 + 4);
 
         // Trade markers (dots along the baseline)
         if (opts.markers && opts.markers.length) {{
@@ -942,10 +943,10 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           }}
         }}
 
-        ctx.strokeStyle = opts.color;
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
         let started = false;
+        let firstX = null;
+        let lastX = null;
+        ctx.beginPath();
         for (let i = viewStart; i <= viewEnd; i++) {{
           const v = series[i].y;
           if (v == null) {{
@@ -956,11 +957,29 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           const yy = yFor(v);
           if (!started) {{
             ctx.moveTo(xx, yy);
+            firstX = xx;
             started = true;
           }} else {{
             ctx.lineTo(xx, yy);
           }}
+          lastX = xx;
         }}
+        if (opts.fill && firstX != null && lastX != null) {{
+          const grad = ctx.createLinearGradient(0, y0, 0, y1);
+          const top = opts.fillTop || "rgba(77,211,255,0.25)";
+          const bot = opts.fillBottom || "rgba(77,211,255,0.0)";
+          grad.addColorStop(0, top);
+          grad.addColorStop(1, bot);
+          ctx.save();
+          ctx.fillStyle = grad;
+          ctx.lineTo(lastX, y1);
+          ctx.lineTo(firstX, y1);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }}
+        ctx.strokeStyle = opts.color;
+        ctx.lineWidth = 2.2;
         ctx.stroke();
 
         // Regime change dots (uses series[i].meta.regime when available).
@@ -1018,15 +1037,33 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             const label = formatTick(dt, spanMs);
             const xx = xFor(idx);
             const wLab = ctx.measureText(label).width;
-            ctx.fillText(label, clamp(xx - wLab / 2, x0, x1 - wLab), h - 10);
+            ctx.fillText(label, clamp(xx - wLab / 2, x0, x1 - wLab), h - 18);
           }}
+        }}
+
+        // Axis labels
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted").trim();
+        ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif";
+        const xLabel = opts.xLabel || "";
+        if (xLabel) {{
+          const wLab = ctx.measureText(xLabel).width;
+          ctx.fillText(xLabel, clamp((x0 + x1) / 2 - wLab / 2, x0, x1 - wLab), h - 6);
+        }}
+        const yLabel = opts.yLabel || "";
+        if (yLabel) {{
+          ctx.save();
+          ctx.translate(16, (y0 + y1) / 2);
+          ctx.rotate(-Math.PI / 2);
+          const wy = ctx.measureText(yLabel).width;
+          ctx.fillText(yLabel, -wy / 2, 0);
+          ctx.restore();
         }}
       }}
 
       function idxAt(clientX) {{
         const rect = canvas.getBoundingClientRect();
         const w = rect.width;
-        const x0 = 46;
+        const x0 = 58;
         const x1 = w - 12;
         const x = Math.max(x0, Math.min(x1, clientX - rect.left));
         const t = (x - x0) / Math.max(1, (x1 - x0));
@@ -1168,10 +1205,10 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         ctx.clearRect(0, 0, w, h);
 
         const [yMin, yMax] = extent();
-        const x0 = 46;
-        const y0 = 16;
+        const x0 = 58;
+        const y0 = 18;
         const x1 = w - 12;
-        const y1 = h - 28;
+        const y1 = h - 44;
 
         ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue("--grid").trim();
         ctx.lineWidth = 1;
@@ -1194,10 +1231,11 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           return y1 - t * (y1 - y0);
         }}
 
+        const yFmt = opts.yFormat || fmt3;
         ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted").trim();
         ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-        ctx.fillText(fmt3(yMax), 8, y0 + 6);
-        ctx.fillText(fmt3(yMin), 8, y1 + 4);
+        ctx.fillText(yFmt(yMax), 8, y0 + 6);
+        ctx.fillText(yFmt(yMin), 8, y1 + 4);
 
         // Trade markers and regime change dots use seriesList[0].meta when available.
         if (opts.markers && opts.markers.length) {{
@@ -1246,10 +1284,10 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
 
         for (let si = 0; si < seriesList.length; si++) {{
           const s = seriesList[si];
-          ctx.strokeStyle = opts.colors[si];
-          ctx.lineWidth = 2.0;
-          ctx.beginPath();
           let started = false;
+          let firstX = null;
+          let lastX = null;
+          ctx.beginPath();
           for (let i = viewStart; i <= viewEnd; i++) {{
             const v = s[i].y;
             if (v == null) {{
@@ -1260,11 +1298,29 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             const yy = yFor(v);
             if (!started) {{
               ctx.moveTo(xx, yy);
+              firstX = xx;
               started = true;
             }} else {{
               ctx.lineTo(xx, yy);
             }}
+            lastX = xx;
           }}
+          if (opts.fillIndex === si && firstX != null && lastX != null) {{
+            const grad = ctx.createLinearGradient(0, y0, 0, y1);
+            const top = opts.fillTop || "rgba(77,211,255,0.25)";
+            const bot = opts.fillBottom || "rgba(77,211,255,0.0)";
+            grad.addColorStop(0, top);
+            grad.addColorStop(1, bot);
+            ctx.save();
+            ctx.fillStyle = grad;
+            ctx.lineTo(lastX, y1);
+            ctx.lineTo(firstX, y1);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }}
+          ctx.strokeStyle = opts.colors[si];
+          ctx.lineWidth = 2.0;
           ctx.stroke();
         }}
 
@@ -1291,15 +1347,32 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             const label = formatTick(dt, spanMs);
             const xx = xFor(idx);
             const wLab = ctx.measureText(label).width;
-            ctx.fillText(label, clamp(xx - wLab / 2, x0, x1 - wLab), h - 10);
+            ctx.fillText(label, clamp(xx - wLab / 2, x0, x1 - wLab), h - 18);
           }}
+        }}
+
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted").trim();
+        ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif";
+        const xLabel = opts.xLabel || "";
+        if (xLabel) {{
+          const wLab = ctx.measureText(xLabel).width;
+          ctx.fillText(xLabel, clamp((x0 + x1) / 2 - wLab / 2, x0, x1 - wLab), h - 6);
+        }}
+        const yLabel = opts.yLabel || "";
+        if (yLabel) {{
+          ctx.save();
+          ctx.translate(16, (y0 + y1) / 2);
+          ctx.rotate(-Math.PI / 2);
+          const wy = ctx.measureText(yLabel).width;
+          ctx.fillText(yLabel, -wy / 2, 0);
+          ctx.restore();
         }}
       }}
 
       function idxAt(clientX) {{
         const rect = canvas.getBoundingClientRect();
         const w = rect.width;
-        const x0 = 46;
+        const x0 = 58;
         const x1 = w - 12;
         const x = Math.max(x0, Math.min(x1, clientX - rect.left));
         const t = (x - x0) / Math.max(1, (x1 - x0));
@@ -1531,6 +1604,12 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           [navSeries, bhSeries],
           {{
             colors: ["rgba(77,211,255,0.95)", "rgba(255,255,255,0.65)"],
+            fillIndex: 0,
+            fillTop: "rgba(77,211,255,0.28)",
+            fillBottom: "rgba(77,211,255,0.0)",
+            xLabel: "Date",
+            yLabel: "NAV (USD)",
+            yFormat: fmt2,
             markers: showTrades ? tradeMarkers : [],
             showRegimeDots: showRegime,
             tooltip: (t, vals) => {{
@@ -1588,6 +1667,12 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           navSeries,
           {{
             color: "rgba(77,211,255,0.95)",
+            fill: true,
+            fillTop: "rgba(77,211,255,0.28)",
+            fillBottom: "rgba(77,211,255,0.0)",
+            xLabel: "Date",
+            yLabel: "NAV (USD)",
+            yFormat: fmt2,
             label: "nav",
             markers: showTrades ? tradeMarkers : [],
             showRegimeDots: showRegime,
@@ -1614,6 +1699,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         pxSeries,
         {{
           color: "rgba(255,255,255,0.85)",
+          xLabel: "Date",
+          yLabel: "Price (USD)",
+          yFormat: fmt2,
           label: "price",
           markers: showTrades ? tradeMarkers : [],
           showRegimeDots: showRegime,
@@ -1648,6 +1736,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         levSeries,
         {{
           color: "rgba(74,212,138,0.95)",
+          xLabel: "Date",
+          yLabel: "Leverage",
+          yFormat: fmt3,
           label: "leverage",
           markers: showTrades ? tradeMarkers : [],
           tooltip: (row) => {{
@@ -1669,6 +1760,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         [carryPct, dirPct],
         {{
           colors: ["rgba(77,211,255,0.95)", "rgba(255,215,109,0.95)"],
+          xLabel: "Date",
+          yLabel: "% NAV",
+          yFormat: fmtPct,
           tooltip: (t, vals) => {{
             const c = vals[0];
             const d = vals[1];
