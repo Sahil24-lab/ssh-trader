@@ -292,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
                 [
                     "open_ts",
                     "close_ts",
+                    "kind",
                     "side",
                     "qty",
                     "entry_price",
@@ -309,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
                     [
                         lc.open_ts.isoformat().replace("+00:00", "Z"),
                         lc.close_ts.isoformat().replace("+00:00", "Z"),
+                        lc.kind,
                         lc.side,
                         lc.qty,
                         lc.entry_price,

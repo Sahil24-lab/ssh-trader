@@ -177,6 +177,7 @@ def _serialize_lifecycles(result: object) -> list[dict[str, str]]:
             {
                 "open_ts": t.open_ts.isoformat().replace("+00:00", "Z"),
                 "close_ts": t.close_ts.isoformat().replace("+00:00", "Z"),
+                "kind": str(t.kind),
                 "side": str(t.side),
                 "qty": str(t.qty),
                 "entry_price": str(t.entry_price),

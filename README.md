@@ -231,7 +231,8 @@ Backtest trades vs open/close:
   not discrete open/close trades. That is why you often see two rows at the same timestamp
   (spot + perp legs).
 - Trade grouping into explicit **open/close** lifecycles is now available via the lifecycle
-  output CSV and the dashboard lifecycle table.
+  output CSV and the dashboard lifecycle table (both directional and carry).
+- Directional lifecycles can be sparse if RISK_ON + expansion triggers are rare.
 
 1. Fetch data:
 

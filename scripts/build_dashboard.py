@@ -640,7 +640,17 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       <div class="card">
         <div class="section-title">
           <div>Trade Lifecycle</div>
-          <div class="hint">Directional open → close trades</div>
+          <div class="hint">Directional + carry open → close lifecycles</div>
+        </div>
+        <div class="legend">
+          <label class="toggle">
+            <input id="toggleDirectional" type="checkbox" checked />
+            Show directional
+          </label>
+          <label class="toggle">
+            <input id="toggleCarry" type="checkbox" checked />
+            Show carry
+          </label>
         </div>
         <div class="table-wrap">
           <table>
@@ -655,8 +665,12 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
                   <span class="info" data-tip="Timestamp when directional position closes.">i</span>
                 </th>
                 <th>
+                  Type
+                  <span class="info" data-tip="Lifecycle type: directional or carry.">i</span>
+                </th>
+                <th>
                   Side
-                  <span class="info" data-tip="Directional side: long or short.">i</span>
+                  <span class="info" data-tip="Directional side: long/short or carry.">i</span>
                 </th>
                 <th>
                   Qty
@@ -1668,8 +1682,20 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       const lBody = document.getElementById("lifecycleTable");
       if (lBody) {{
         const selectedKey = window.__selectedLifecycleKey || "";
-        const lRows = lifecycles.slice(-250);
-        lBody.innerHTML = lRows.map(r => {{
+        const showCarry = document.getElementById("toggleCarry")?.checked ?? true;
+        const showDirectional = document.getElementById("toggleDirectional")?.checked ?? true;
+        const lRows = lifecycles.filter(r => (
+          (r.kind === "carry" && showCarry) ||
+          (r.kind === "directional" && showDirectional)
+        )).slice(-250);
+        if (lRows.length === 0) {{
+          lBody.innerHTML = (
+            `<tr>` +
+            `<td class="mono" colspan="10">No lifecycle trades in this window.</td>` +
+            `</tr>`
+          );
+        }} else {{
+          lBody.innerHTML = lRows.map(r => {{
           const key = `${{r.open_ts}}|${{r.close_ts}}`;
           const rowCls = key === selectedKey ? "row-selected" : "";
           const qty = toNum(r.qty);
@@ -1680,6 +1706,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           return `<tr data-key="${{key}}" class="${{rowCls}}">
             <td class="mono">${{r.open_ts || ""}}</td>
             <td class="mono">${{r.close_ts || ""}}</td>
+            <td>${{r.kind || ""}}</td>
             <td>${{r.side || ""}}</td>
             <td class="mono">${{fmt6(r.qty || "")}}</td>
             <td class="mono">${{fmt3(r.entry_price || "")}}</td>
@@ -1688,7 +1715,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             <td class="mono">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
             <td class="mono">${{r.bars_held || ""}}</td>
           </tr>`;
-        }}).join("");
+          }}).join("");
+        }}
       }}
     }}
 
@@ -1720,11 +1748,16 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
 
         kv.push(["Open", lc.open_ts || ""]);
         kv.push(["Close", lc.close_ts || ""]);
+        kv.push(["Type", lc.kind || ""]);
         kv.push(["Side", lc.side || ""]);
         kv.push(["Qty", fmt6(lc.qty || "")]);
         kv.push(["Entry", fmt3(lc.entry_price || "")]);
         kv.push(["Exit", fmt3(lc.exit_price || "")]);
         kv.push(["PnL (USD)", fmt2(lc.pnl_total || "")]);
+        kv.push(["PnL Price", fmt2(lc.pnl_price || "")]);
+        kv.push(["PnL Funding", fmt2(lc.pnl_funding || "")]);
+        kv.push(["PnL Fees", fmt2(lc.pnl_fees || "")]);
+        kv.push(["PnL Slippage", fmt2(lc.pnl_slippage || "")]);
         kv.push(["PnL %", pnlPct == null ? "" : fmtPct(pnlPct)]);
         kv.push(["Bars held", lc.bars_held || ""]);
 
@@ -1804,6 +1837,18 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         "Bar PnL (USD)": "Total bar PnL = price + funding + fees + slippage.",
         "NAV Δ (USD)": "Change in NAV from previous bar.",
         "NAV Δ %": "NAV change percentage from previous bar.",
+        "Open": "Lifecycle open timestamp.",
+        "Close": "Lifecycle close timestamp.",
+        "Type": "Lifecycle type: directional or carry.",
+        "Entry": "Entry price for the lifecycle trade.",
+        "Exit": "Exit price for the lifecycle trade.",
+        "PnL (USD)": "Total lifecycle PnL (price + funding - fees - slippage).",
+        "PnL %": "Lifecycle PnL / (entry price * qty).",
+        "PnL Price": "Price-driven PnL for the lifecycle.",
+        "PnL Funding": "Funding component for the lifecycle.",
+        "PnL Fees": "Fees paid during the lifecycle.",
+        "PnL Slippage": "Slippage paid during the lifecycle.",
+        "Bars held": "Number of bars held.",
         "Nearest level": "Closest quantified support/resistance level.",
         "Level center": "Level center price.",
         "Level dist (ATR)": "Distance from price to level center, in ATR units.",
@@ -2192,6 +2237,16 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           renderDashboard(LAST_PAYLOAD);
         }});
         lBody.__wired = true;
+      }}
+      const toggleCarry = document.getElementById("toggleCarry");
+      const toggleDirectional = document.getElementById("toggleDirectional");
+      if (toggleCarry && !toggleCarry.__wired) {{
+        toggleCarry.addEventListener("change", () => renderDashboard(LAST_PAYLOAD));
+        toggleCarry.__wired = true;
+      }}
+      if (toggleDirectional && !toggleDirectional.__wired) {{
+        toggleDirectional.addEventListener("change", () => renderDashboard(LAST_PAYLOAD));
+        toggleDirectional.__wired = true;
       }}
       return;
 

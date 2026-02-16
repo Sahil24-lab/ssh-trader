@@ -88,7 +88,8 @@ class TradeEvent:
 class TradeLifecycle:
     open_ts: datetime
     close_ts: datetime
-    side: Literal["long", "short"]
+    kind: Literal["directional", "carry"]
+    side: Literal["long", "short", "carry"]
     qty: float
     entry_price: float
     exit_price: float
@@ -275,6 +276,15 @@ def simulate_portfolio(
     dir_fee_accum = 0.0
     dir_slip_accum = 0.0
     dir_funding_accum = 0.0
+    carry_open = False
+    carry_entry_ts = frame.ts[0]
+    carry_entry_idx = 0
+    carry_entry_price = 0.0
+    carry_entry_qty = 0.0
+    carry_fee_accum = 0.0
+    carry_slip_accum = 0.0
+    carry_price_accum = 0.0
+    carry_funding_accum = 0.0
     for i, ts in enumerate(frame.ts):
         price = frame.close[i]
         if price <= 0.0 or not math.isfinite(price):
@@ -309,6 +319,10 @@ def simulate_portfolio(
                     funding_accum = 0.0
                     if state.dir_perp_qty != 0.0:
                         dir_funding_accum += pnl_dir_funding
+                    if state.carry_spot_qty != 0.0:
+                        carry_funding_accum += pnl_carry_funding
+            if state.carry_spot_qty != 0.0:
+                carry_price_accum += pnl_carry_price
 
         nav_now = _nav(state, price)
         if nav_now > state.peak_nav:
@@ -360,6 +374,7 @@ def simulate_portfolio(
 
         # Apply trades at bar close.
         prev_dir_qty = state.dir_perp_qty
+        prev_carry_qty = state.carry_spot_qty
         spot_delta = target_spot_qty - state.carry_spot_qty
         carry_perp_delta = target_carry_perp_qty - state.carry_perp_qty
         dir_perp_delta = target_dir_perp_qty - state.dir_perp_qty
@@ -376,6 +391,9 @@ def simulate_portfolio(
         )
         pnl_fees -= fee
         pnl_slip -= slip
+        if spot_delta != 0.0:
+            carry_fee_accum += fee
+            carry_slip_accum += slip
 
         # Perp deltas: book as separate events for carry vs directional attribution.
         if carry_perp_delta != 0.0:
@@ -398,6 +416,8 @@ def simulate_portfolio(
             )
             pnl_fees -= fee
             pnl_slip -= slip
+            carry_fee_accum += fee
+            carry_slip_accum += slip
 
         if dir_perp_delta != 0.0:
             notional = dir_perp_delta * price
@@ -435,6 +455,7 @@ def simulate_portfolio(
         )
 
         new_dir_qty = state.dir_perp_qty
+        new_carry_qty = state.carry_spot_qty
         if not dir_open and prev_dir_qty == 0.0 and new_dir_qty != 0.0:
             dir_open = True
             dir_entry_ts = ts
@@ -453,6 +474,7 @@ def simulate_portfolio(
                 TradeLifecycle(
                     open_ts=dir_entry_ts,
                     close_ts=ts,
+                    kind="directional",
                     side=side_label,
                     qty=abs(dir_entry_qty),
                     entry_price=dir_entry_price,
@@ -480,6 +502,7 @@ def simulate_portfolio(
                 TradeLifecycle(
                     open_ts=dir_entry_ts,
                     close_ts=ts,
+                    kind="directional",
                     side=side_label2,
                     qty=abs(dir_entry_qty),
                     entry_price=dir_entry_price,
@@ -499,6 +522,38 @@ def simulate_portfolio(
             dir_fee_accum = 0.0
             dir_slip_accum = 0.0
             dir_funding_accum = 0.0
+
+        if not carry_open and abs(prev_carry_qty) <= 1e-12 and abs(new_carry_qty) > 1e-12:
+            carry_open = True
+            carry_entry_ts = ts
+            carry_entry_idx = i
+            carry_entry_price = price
+            carry_entry_qty = new_carry_qty
+            carry_fee_accum = 0.0
+            carry_slip_accum = 0.0
+            carry_price_accum = 0.0
+            carry_funding_accum = 0.0
+
+        if carry_open and abs(prev_carry_qty) > 1e-12 and abs(new_carry_qty) <= 1e-12:
+            pnl_total = carry_price_accum + carry_funding_accum - carry_fee_accum - carry_slip_accum
+            lifecycles.append(
+                TradeLifecycle(
+                    open_ts=carry_entry_ts,
+                    close_ts=ts,
+                    kind="carry",
+                    side="carry",
+                    qty=abs(carry_entry_qty),
+                    entry_price=carry_entry_price,
+                    exit_price=price,
+                    pnl_price=carry_price_accum,
+                    pnl_funding=carry_funding_accum,
+                    pnl_fees=carry_fee_accum,
+                    pnl_slippage=carry_slip_accum,
+                    pnl_total=pnl_total,
+                    bars_held=i - carry_entry_idx,
+                )
+            )
+            carry_open = False
 
         nav_after = _nav(state, price)
         gross = _gross_exposure(state, price)
