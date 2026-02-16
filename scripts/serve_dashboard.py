@@ -32,6 +32,22 @@ class ServeConfig:
     shadow_path: Path | None
     default_csv: Path
     default_timeframe: str
+    ta_features: list[dict[str, str]]
+
+
+def _read_csv(path: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if not path.exists():
+        return rows
+    header: list[str] | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if header is None:
+            header = [h.strip() for h in line.split(",")]
+            continue
+        parts = line.split(",")
+        row = {header[i]: (parts[i] if i < len(parts) else "") for i in range(len(header))}
+        rows.append(row)
+    return rows
 
 
 def _read_json(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
@@ -233,6 +249,7 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
         "trades": _serialize_trades(result),
         "metrics": metrics_rows,
         "shadow": shadow_rows,
+        "ta_features": cfg.ta_features,
     }
 
 
@@ -244,6 +261,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--shadow", type=Path, default=Path("out/shadow_log.csv"))
     p.add_argument("--csv", type=Path, default=Path("data/hyperliquid_btc_1h.csv"))
     p.add_argument("--timeframe", type=str, default="1h")
+    p.add_argument("--ta-features", type=Path, default=Path("out/ta_features.csv"))
     return p
 
 
@@ -256,12 +274,19 @@ def main(argv: list[str] | None = None) -> int:
     shadow_path = (root / args.shadow).resolve() if not args.shadow.is_absolute() else args.shadow
     csv_path = (root / args.csv).resolve() if not args.csv.is_absolute() else args.csv
 
+    ta_features = _read_csv(
+        (root / args.ta_features).resolve()
+        if not args.ta_features.is_absolute()
+        else args.ta_features
+    )
+
     cfg = ServeConfig(
         root_dir=root,
         dashboard_path=dashboard_path,
         shadow_path=shadow_path if shadow_path.exists() else None,
         default_csv=csv_path,
         default_timeframe=args.timeframe,
+        ta_features=ta_features,
     )
 
     class Handler(BaseHTTPRequestHandler):

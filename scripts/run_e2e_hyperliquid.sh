@@ -190,6 +190,7 @@ echo "[6/6] Building dashboard"
   --metrics "${OUT_DIR}/metrics.csv" \
   --shadow "${OUT_DIR}/shadow_log.csv" \
   --trades "${OUT_DIR}/trades.csv" \
+  --ta-features "${OUT_DIR}/ta_features.csv" \
   --output "${OUT_DIR}/dashboard.html"
 
 echo "Done."

@@ -29,6 +29,11 @@ All notable changes to this repository are documented here.
 - Wired TA-02 levels into TA feature dump with proximity columns in `out/ta_features.csv`
   (`scripts/dump_ta_features.py`).
 - Added TA-02 unit tests for pivots, clustering, scoring, and proximity (`tests/test_ta_levels.py`).
+- Added trade inspector panel in the dashboard with TA snapshot on trade click; dashboard now loads
+  TA features and highlights selected trades on the price chart (`scripts/build_dashboard.py`).
+- Added hover tooltips for trade table headers and inspector fields for clearer interpretation
+  (`scripts/build_dashboard.py`).
+- Added TA features passthrough to the local dashboard API server (`scripts/serve_dashboard.py`).
 - Updated documentation for the new fetch/E2E workflow (`README.md`).
 
 ## 0.1.0 — 2026-02-15

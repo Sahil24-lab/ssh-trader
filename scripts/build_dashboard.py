@@ -21,12 +21,14 @@ def _build_html(
     metrics: list[dict[str, str]],
     shadow: list[dict[str, str]],
     trades: list[dict[str, str]],
+    ta_features: list[dict[str, str]],
 ) -> str:
     payload = {
         "bars": bars,
         "metrics": metrics,
         "shadow": shadow,
         "trades": trades,
+        "ta_features": ta_features,
         "generated_at_utc": datetime.now(tz=timezone.utc)
         .replace(microsecond=0)
         .isoformat()
@@ -305,6 +307,33 @@ def _build_html(
       border-radius: 14px;
       border: 1px solid var(--grid);
     }}
+    tr.row-selected {{
+      background: rgba(77, 211, 255, 0.12);
+    }}
+    .inspect {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 18px;
+      font-size: 13px;
+    }}
+    .inspect .kv {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }}
+    .inspect .k {{
+      color: var(--muted);
+    }}
+    .inspect .v {{
+      font-weight: 600;
+    }}
+    .inspect .wide {{
+      grid-column: 1 / -1;
+    }}
     table {{ width: 100%; border-collapse: collapse; font-size: 0.86rem; }}
     th, td {{ text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--grid); }}
     th {{ position: sticky; top: 0; background: var(--panel0); z-index: 2; }}
@@ -547,18 +576,62 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             <thead>
               <tr>
                 <th>Time</th>
-                <th>Leg</th>
-                <th>Side</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Notional</th>
-                <th>Fee</th>
-                <th>Slip</th>
-                <th>Bar PnL</th>
+                <th>
+                  Leg
+                  <span class="info" data-tip="Instrument leg: spot or perp.">i</span>
+                </th>
+                <th>
+                  Side
+                  <span class="info" data-tip="BUY/SELL direction for this leg.">i</span>
+                </th>
+                <th>
+                  Qty
+                  <span class="info" data-tip="Quantity delta for this rebalance leg.">i</span>
+                </th>
+                <th>
+                  Price
+                  <span class="info" data-tip="Execution price used in the simulator.">i</span>
+                </th>
+                <th>
+                  Notional
+                  <span class="info" data-tip="Signed notional = qty * price.">i</span>
+                </th>
+                <th>
+                  Fee
+                  <span class="info" data-tip="Estimated fee for this leg.">i</span>
+                </th>
+                <th>
+                  Slip
+                  <span class="info" data-tip="Estimated slippage for this leg.">i</span>
+                </th>
+                <th>
+                  Bar PnL (USD)
+                  <span class="info" data-tip="Total bar PnL = price + funding + fees + slippage.">
+                    i
+                  </span>
+                </th>
+                <th>
+                  NAV Δ (USD)
+                  <span class="info" data-tip="Change in NAV from previous bar.">i</span>
+                </th>
+                <th>
+                  NAV Δ %
+                  <span class="info" data-tip="NAV change percentage from previous bar.">i</span>
+                </th>
               </tr>
             </thead>
             <tbody id="tradeTable"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">
+          <div>Trade Inspector</div>
+          <div class="hint">Click a trade row to view TA snapshot</div>
+        </div>
+        <div id="tradeInspect" class="inspect">
+          <div class="muted">Click a trade row to populate this panel.</div>
         </div>
       </div>
     </div>
@@ -568,6 +641,14 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
 
   <script>
     const DATA = {data_json};
+    const TA = DATA.ta_features || [];
+    const TA_BY_TS = new Map();
+    for (const row of TA) {{
+      if (row && row.timestamp) {{
+        TA_BY_TS.set(row.timestamp, row);
+      }}
+    }}
+    let LAST_PAYLOAD = DATA;
     let API_BASE = ""; // set by setupRerunControls()
 
     function toNum(v) {{
@@ -587,6 +668,17 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       return n.toLocaleString(undefined, {{
         minimumFractionDigits: 3,
         maximumFractionDigits: 3,
+      }});
+    }}
+
+    function fmt6(v) {{
+      const n = Number(v);
+      if (!Number.isFinite(n)) return String(v ?? "");
+      const abs = Math.abs(n);
+      if (abs > 0 && abs < 1e-6) return n.toExponential(3);
+      return n.toLocaleString(undefined, {{
+        minimumFractionDigits: 6,
+        maximumFractionDigits: 6,
       }});
     }}
 
@@ -1001,6 +1093,19 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
               ctx.fill();
               prev = r;
             }}
+          }}
+        }}
+
+        if (opts.highlightIdx != null) {{
+          const hi = opts.highlightIdx;
+          if (hi >= viewStart && hi <= viewEnd) {{
+            const hx = xFor(hi);
+            ctx.strokeStyle = "rgba(255,255,255,0.45)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(hx, y0);
+            ctx.lineTo(hx, y1);
+            ctx.stroke();
           }}
         }}
 
@@ -1446,7 +1551,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       return {{ resize }};
     }}
 
-    function renderTables(shadow, trades, barPnlByTs) {{
+    function renderTables(shadow, trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs) {{
       const body = document.getElementById("shadowTable");
       const rows = shadow.slice(-250);
       body.innerHTML = rows.map(r => {{
@@ -1464,24 +1569,119 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
 
       const tBody = document.getElementById("tradeTable");
       const tRows = trades.slice(-250);
+      const selectedTs = window.__selectedTradeTs || "";
       tBody.innerHTML = tRows.map(r => {{
         const qty = toNum(r.qty_delta || r.qty);
         const side = qty == null ? "" : (qty >= 0 ? "BUY" : "SELL");
         const sideCls = qty == null ? "neutral" : (qty >= 0 ? "on" : "off");
         const ts = r.ts || r.timestamp || "";
         const barPnl = (barPnlByTs && ts) ? barPnlByTs.get(ts) : null;
+        const navDeltaUsd = (navDeltaUsdByTs && ts) ? navDeltaUsdByTs.get(ts) : null;
+        const navDeltaPct = (navDeltaPctByTs && ts) ? navDeltaPctByTs.get(ts) : null;
         const barCls = (barPnl != null && barPnl < 0) ? "off" : "on";
-        return `<tr>
+        const rowCls = ts === selectedTs ? "row-selected" : "";
+        return `<tr data-ts="${{ts}}" class="${{rowCls}}">
           <td class="mono">${{ts}}</td>
           <td class="mono">${{r.leg || ""}}</td>
           <td><span class="pill ${{sideCls}}">${{side}}</span></td>
-          <td class="mono">${{fmt3(r.qty_delta || r.qty || "")}}</td>
+          <td class="mono">${{fmt6(r.qty_delta || r.qty || "")}}</td>
           <td class="mono">${{fmt3(r.price || "")}}</td>
           <td class="mono">${{fmt3(r.notional || "")}}</td>
           <td class="mono">${{fmt3(r.fee || "")}}</td>
           <td class="mono">${{fmt3(r.slippage || "")}}</td>
           <td><span class="pill ${{barCls}}">${{barPnl == null ? "" : fmt2(barPnl)}}</span></td>
+          <td class="mono">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
+          <td class="mono">${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}</td>
         </tr>`;
+      }}).join("");
+    }}
+
+    function renderTradeInspector(trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs) {{
+      const panel = document.getElementById("tradeInspect");
+      if (!panel) return;
+      const ts = window.__selectedTradeTs || "";
+      if (!ts) {{
+        panel.innerHTML = '<div class="muted">Click a trade row to populate this panel.</div>';
+        return;
+      }}
+      const trade = trades.find(r => (r.ts || r.timestamp || "") === ts);
+      if (!trade) {{
+        panel.innerHTML = '<div class="muted">Selected trade not found.</div>';
+        return;
+      }}
+      const ta = TA_BY_TS.get(ts);
+      const barPnl = barPnlByTs && ts ? barPnlByTs.get(ts) : null;
+      const navDeltaUsd = navDeltaUsdByTs && ts ? navDeltaUsdByTs.get(ts) : null;
+      const navDeltaPct = navDeltaPctByTs && ts ? navDeltaPctByTs.get(ts) : null;
+      const qty = toNum(trade.qty_delta || trade.qty);
+      const side = qty == null ? "" : (qty >= 0 ? "BUY" : "SELL");
+      const kv = [];
+      kv.push(["Time", ts]);
+      kv.push(["Leg", trade.leg || ""]);
+      kv.push(["Side", side]);
+      kv.push(["Qty", fmt6(trade.qty_delta || trade.qty || "")]);
+      kv.push(["Price", fmt3(trade.price || "")]);
+      kv.push(["Notional", fmt3(trade.notional || "")]);
+      kv.push(["Fee", fmt3(trade.fee || "")]);
+      kv.push(["Slippage", fmt3(trade.slippage || "")]);
+      kv.push(["Bar PnL (USD)", barPnl == null ? "" : fmt2(barPnl)]);
+      kv.push(["NAV Δ (USD)", navDeltaUsd == null ? "" : fmt2(navDeltaUsd)]);
+      kv.push(["NAV Δ %", navDeltaPct == null ? "" : fmtPct(navDeltaPct)]);
+
+      if (ta) {{
+        kv.push(["Nearest level", `${{ta.nearest_level_kind || ""}}`]);
+        kv.push(["Level center", ta.nearest_level_center || ""]);
+        kv.push(["Level dist (ATR)", ta.nearest_level_distance_atr || ""]);
+        kv.push(["Pivot high", ta.pivot_high || ""]);
+        kv.push(["Pivot low", ta.pivot_low || ""]);
+        kv.push(["Compression", ta.compress || ""]);
+        kv.push(["Breakout long", ta.breakout_long || ""]);
+        kv.push(["Breakout short", ta.breakout_short || ""]);
+        kv.push(["Sweep reclaim long", ta.sweep_reclaim_long || ""]);
+        kv.push(["Sweep reclaim short", ta.sweep_reclaim_short || ""]);
+        kv.push(["Confluence long", ta.confluence_long || ""]);
+        kv.push(["Confluence short", ta.confluence_short || ""]);
+        kv.push(["Bias 4H", ta.bias_4h || ""]);
+      }} else {{
+        kv.push(["TA features", "n/a (no matching timestamp)"]);
+      }}
+
+      const tipMap = {{
+        "Time": "Timestamp of this rebalance leg.",
+        "Leg": "Instrument leg: spot or perp.",
+        "Side": "BUY/SELL direction for this leg.",
+        "Qty": "Quantity delta for this leg.",
+        "Price": "Execution price used in the simulator.",
+        "Notional": "Signed notional = qty * price.",
+        "Fee": "Estimated fee for this leg.",
+        "Slippage": "Estimated slippage for this leg.",
+        "Bar PnL (USD)": "Total bar PnL = price + funding + fees + slippage.",
+        "NAV Δ (USD)": "Change in NAV from previous bar.",
+        "NAV Δ %": "NAV change percentage from previous bar.",
+        "Nearest level": "Closest quantified support/resistance level.",
+        "Level center": "Level center price.",
+        "Level dist (ATR)": "Distance from price to level center, in ATR units.",
+        "Pivot high": "1 if this bar is a pivot high on the chosen timeframe.",
+        "Pivot low": "1 if this bar is a pivot low on the chosen timeframe.",
+        "Compression": "1 if ATR/range compression conditions are met.",
+        "Breakout long": "1 if breakout-long condition fired on this bar.",
+        "Breakout short": "1 if breakout-short condition fired on this bar.",
+        "Sweep reclaim long": "1 if sweep+reclaim long condition fired.",
+        "Sweep reclaim short": "1 if sweep+reclaim short condition fired.",
+        "Confluence long": "Composite confluence score for long setup.",
+        "Confluence short": "Composite confluence score for short setup.",
+        "Bias 4H": "Higher timeframe trend bias: +1, 0, or -1.",
+      }};
+
+      panel.innerHTML = kv.map(([k, v]) => {{
+        const tip = tipMap[k] || "";
+        const info = tip ? `<span class="info" data-tip="${{tip}}">i</span>` : "";
+        return (
+          `<div class="kv">` +
+          `<div class="k">${{k}} ${{info}}</div>` +
+          `<div class="v mono">${{v}}</div>` +
+          `</div>`
+        );
       }}).join("");
     }}
 
@@ -1495,6 +1695,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
     }}
 
     function renderDashboard(payload) {{
+      LAST_PAYLOAD = payload;
       const bars = payload.bars || [];
       const metrics = payload.metrics || [];
       const shadow = payload.shadow || [];
@@ -1572,6 +1773,21 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         barPnlByTs.set(b.timestamp, p + f + fe + sl);
       }}
 
+      const navDeltaUsdByTs = new Map();
+      const navDeltaPctByTs = new Map();
+      for (let i = 1; i < bars.length; i++) {{
+        const prevNav = toNum(bars[i - 1].nav);
+        const curNav = toNum(bars[i].nav);
+        if (prevNav != null && curNav != null) {{
+          const delta = curNav - prevNav;
+          navDeltaUsdByTs.set(bars[i].timestamp, delta);
+          navDeltaPctByTs.set(
+            bars[i].timestamp,
+            prevNav === 0 ? null : delta / prevNav
+          );
+        }}
+      }}
+
       const carryPct = bars.map(b => ({{
         t: b.timestamp,
         y: (toNum(b.carry_notional) != null && toNum(b.nav) != null && toNum(b.nav) !== 0)
@@ -1596,6 +1812,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       const showTrades = (document.getElementById("toggleTrades")?.checked ?? true);
       const showRegime = (document.getElementById("toggleRegime")?.checked ?? true);
       const showDirEntries = (document.getElementById("toggleDirEntries")?.checked ?? true);
+      const selectedTs = window.__selectedTradeTs || "";
+      const selectedIdx = selectedTs ? tsToIdx.get(selectedTs) : null;
 
       if (showBH) {{
         makeMultiChart(
@@ -1707,6 +1925,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           showRegimeDots: showRegime,
           dirMarkers: (showDirEntries ? dirMarkers : []),
           dirMarkerMaxSpan: 800,
+          highlightIdx: selectedIdx == null ? null : selectedIdx,
           tooltip: (row) => {{
             const m = row.meta || {{}};
             const dn = toNum(m.directional_notional) ?? 0;
@@ -1775,7 +1994,19 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         }}
       );
 
-      renderTables(shadow, trades, barPnlByTs);
+      renderTables(shadow, trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs);
+      renderTradeInspector(trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs);
+
+      const tBody = document.getElementById("tradeTable");
+      if (tBody && !tBody.__wired) {{
+        tBody.addEventListener("click", (e) => {{
+          const tr = e.target.closest("tr[data-ts]");
+          if (!tr) return;
+          window.__selectedTradeTs = tr.getAttribute("data-ts") || "";
+          renderDashboard(LAST_PAYLOAD);
+        }});
+        tBody.__wired = true;
+      }}
       return;
 
       makeMultiChart(
@@ -2082,6 +2313,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Backtest trades CSV from backtest.run --output-trades",
     )
+    parser.add_argument(
+        "--ta-features",
+        type=Path,
+        default=None,
+        help="TA features CSV from scripts/dump_ta_features.py",
+    )
     parser.add_argument("--output", type=Path, default=Path("dashboard.html"))
     args = parser.parse_args(argv)
 
@@ -2089,8 +2326,20 @@ def main(argv: list[str] | None = None) -> int:
     metrics = _read_csv(args.metrics) if args.metrics is not None and args.metrics.exists() else []
     shadow = _read_csv(args.shadow) if args.shadow is not None and args.shadow.exists() else []
     trades = _read_csv(args.trades) if args.trades is not None and args.trades.exists() else []
+    ta_features = (
+        _read_csv(args.ta_features)
+        if args.ta_features is not None and args.ta_features.exists()
+        else []
+    )
 
-    html = _build_html(title=args.title, bars=bars, metrics=metrics, shadow=shadow, trades=trades)
+    html = _build_html(
+        title=args.title,
+        bars=bars,
+        metrics=metrics,
+        shadow=shadow,
+        trades=trades,
+        ta_features=ta_features,
+    )
     args.output.write_text(html, encoding="utf-8")
     print(f"wrote dashboard to {args.output}")
     return 0

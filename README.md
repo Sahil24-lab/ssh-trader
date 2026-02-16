@@ -225,6 +225,15 @@ Dashboard tips:
 
 Then open `http://127.0.0.1:8000/`.
 
+Backtest trades vs open/close:
+
+- The **Backtest Trades** table currently shows *rebalance legs* (spot and perp) per bar,
+  not discrete open/close trades. That is why you often see two rows at the same timestamp
+  (spot + perp legs).
+- Trade grouping into explicit **open/close** lifecycles is not implemented yet. If you want
+  per-trade entry/exit and realized PnL, we should add position tracking + trade grouping
+  in the simulator layer.
+
 1. Fetch data:
 
 ```bash
