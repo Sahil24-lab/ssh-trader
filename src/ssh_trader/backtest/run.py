@@ -71,6 +71,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional trade event CSV output for visualization.",
     )
+    p.add_argument(
+        "--output-lifecycle",
+        type=Path,
+        default=None,
+        help="Optional trade lifecycle CSV output for visualization.",
+    )
     return p
 
 
@@ -275,6 +281,44 @@ def main(argv: list[str] | None = None) -> int:
                         t.notional,
                         t.fee,
                         t.slippage,
+                    ]
+                )
+
+    if args.output_lifecycle is not None:
+        args.output_lifecycle.parent.mkdir(parents=True, exist_ok=True)
+        with args.output_lifecycle.open("w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(
+                [
+                    "open_ts",
+                    "close_ts",
+                    "side",
+                    "qty",
+                    "entry_price",
+                    "exit_price",
+                    "pnl_price",
+                    "pnl_funding",
+                    "pnl_fees",
+                    "pnl_slippage",
+                    "pnl_total",
+                    "bars_held",
+                ]
+            )
+            for lc in result.lifecycles:
+                w.writerow(
+                    [
+                        lc.open_ts.isoformat().replace("+00:00", "Z"),
+                        lc.close_ts.isoformat().replace("+00:00", "Z"),
+                        lc.side,
+                        lc.qty,
+                        lc.entry_price,
+                        lc.exit_price,
+                        lc.pnl_price,
+                        lc.pnl_funding,
+                        lc.pnl_fees,
+                        lc.pnl_slippage,
+                        lc.pnl_total,
+                        lc.bars_held,
                     ]
                 )
 

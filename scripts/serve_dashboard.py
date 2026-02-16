@@ -33,6 +33,7 @@ class ServeConfig:
     default_csv: Path
     default_timeframe: str
     ta_features: list[dict[str, str]]
+    lifecycles: list[dict[str, str]]
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -168,6 +169,29 @@ def _serialize_trades(result: object) -> list[dict[str, str]]:
     return out
 
 
+def _serialize_lifecycles(result: object) -> list[dict[str, str]]:
+    r_any = cast(Any, result)
+    out: list[dict[str, str]] = []
+    for t in r_any.lifecycles:
+        out.append(
+            {
+                "open_ts": t.open_ts.isoformat().replace("+00:00", "Z"),
+                "close_ts": t.close_ts.isoformat().replace("+00:00", "Z"),
+                "side": str(t.side),
+                "qty": str(t.qty),
+                "entry_price": str(t.entry_price),
+                "exit_price": str(t.exit_price),
+                "pnl_price": str(t.pnl_price),
+                "pnl_funding": str(t.pnl_funding),
+                "pnl_fees": str(t.pnl_fees),
+                "pnl_slippage": str(t.pnl_slippage),
+                "pnl_total": str(t.pnl_total),
+                "bars_held": str(t.bars_held),
+            }
+        )
+    return out
+
+
 def _read_shadow_csv(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
@@ -247,6 +271,7 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
     return {
         "bars": _serialize_bars(result),
         "trades": _serialize_trades(result),
+        "lifecycle": _serialize_lifecycles(result),
         "metrics": metrics_rows,
         "shadow": shadow_rows,
         "ta_features": cfg.ta_features,
@@ -262,6 +287,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--csv", type=Path, default=Path("data/hyperliquid_btc_1h.csv"))
     p.add_argument("--timeframe", type=str, default="1h")
     p.add_argument("--ta-features", type=Path, default=Path("out/ta_features.csv"))
+    p.add_argument("--lifecycle", type=Path, default=Path("out/lifecycle.csv"))
     return p
 
 
@@ -279,6 +305,9 @@ def main(argv: list[str] | None = None) -> int:
         if not args.ta_features.is_absolute()
         else args.ta_features
     )
+    lifecycle = _read_csv(
+        (root / args.lifecycle).resolve() if not args.lifecycle.is_absolute() else args.lifecycle
+    )
 
     cfg = ServeConfig(
         root_dir=root,
@@ -287,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         default_csv=csv_path,
         default_timeframe=args.timeframe,
         ta_features=ta_features,
+        lifecycles=lifecycle,
     )
 
     class Handler(BaseHTTPRequestHandler):

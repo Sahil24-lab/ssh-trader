@@ -85,6 +85,22 @@ class TradeEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class TradeLifecycle:
+    open_ts: datetime
+    close_ts: datetime
+    side: Literal["long", "short"]
+    qty: float
+    entry_price: float
+    exit_price: float
+    pnl_price: float
+    pnl_funding: float
+    pnl_fees: float
+    pnl_slippage: float
+    pnl_total: float
+    bars_held: int
+
+
+@dataclass(frozen=True, slots=True)
 class BarResult:
     ts: datetime
     price: float
@@ -109,6 +125,7 @@ class BarResult:
 class SimulationResult:
     bars: list[BarResult]
     trades: list[TradeEvent]
+    lifecycles: list[TradeLifecycle]
 
 
 def _nav(state: PortfolioState, price: float) -> float:
@@ -184,7 +201,7 @@ def simulate_portfolio(
     - deterministic fee + slippage models
     """
     if len(frame) == 0:
-        return SimulationResult(bars=[], trades=[])
+        return SimulationResult(bars=[], trades=[], lifecycles=[])
 
     fee_model = fee_model if fee_model is not None else FeeModel()
     slippage_model = slippage_model if slippage_model is not None else SlippageModel()
@@ -246,9 +263,18 @@ def simulate_portfolio(
 
     bars: list[BarResult] = []
     trades: list[TradeEvent] = []
+    lifecycles: list[TradeLifecycle] = []
 
     prev_price = frame.close[0]
     funding_accum = 0.0
+    dir_open = False
+    dir_entry_ts = frame.ts[0]
+    dir_entry_idx = 0
+    dir_entry_price = 0.0
+    dir_entry_qty = 0.0
+    dir_fee_accum = 0.0
+    dir_slip_accum = 0.0
+    dir_funding_accum = 0.0
     for i, ts in enumerate(frame.ts):
         price = frame.close[i]
         if price <= 0.0 or not math.isfinite(price):
@@ -281,6 +307,8 @@ def simulate_portfolio(
                     pnl_funding = pnl_carry_funding + pnl_dir_funding
                     state.cash += pnl_funding
                     funding_accum = 0.0
+                    if state.dir_perp_qty != 0.0:
+                        dir_funding_accum += pnl_dir_funding
 
         nav_now = _nav(state, price)
         if nav_now > state.peak_nav:
@@ -331,6 +359,7 @@ def simulate_portfolio(
             dir_notional *= s
 
         # Apply trades at bar close.
+        prev_dir_qty = state.dir_perp_qty
         spot_delta = target_spot_qty - state.carry_spot_qty
         carry_perp_delta = target_carry_perp_qty - state.carry_perp_qty
         dir_perp_delta = target_dir_perp_qty - state.dir_perp_qty
@@ -390,6 +419,9 @@ def simulate_portfolio(
             )
             pnl_fees -= fee
             pnl_slip -= slip
+            if prev_dir_qty != 0.0 or state.dir_perp_qty != 0.0:
+                dir_fee_accum += fee
+                dir_slip_accum += slip
 
         # Post-trade leverage enforcement: costs can reduce NAV enough to exceed cap.
         _post_trade_enforce_leverage(
@@ -401,6 +433,72 @@ def simulate_portfolio(
             slippage_model=slippage_model,
             trades=trades,
         )
+
+        new_dir_qty = state.dir_perp_qty
+        if not dir_open and prev_dir_qty == 0.0 and new_dir_qty != 0.0:
+            dir_open = True
+            dir_entry_ts = ts
+            dir_entry_idx = i
+            dir_entry_price = price
+            dir_entry_qty = new_dir_qty
+            dir_fee_accum = 0.0
+            dir_slip_accum = 0.0
+            dir_funding_accum = 0.0
+
+        if dir_open and prev_dir_qty != 0.0 and new_dir_qty == 0.0:
+            pnl_price_trade = (price - dir_entry_price) * dir_entry_qty
+            pnl_total = pnl_price_trade + dir_funding_accum - dir_fee_accum - dir_slip_accum
+            side_label: Literal["long", "short"] = "long" if dir_entry_qty > 0 else "short"
+            lifecycles.append(
+                TradeLifecycle(
+                    open_ts=dir_entry_ts,
+                    close_ts=ts,
+                    side=side_label,
+                    qty=abs(dir_entry_qty),
+                    entry_price=dir_entry_price,
+                    exit_price=price,
+                    pnl_price=pnl_price_trade,
+                    pnl_funding=dir_funding_accum,
+                    pnl_fees=dir_fee_accum,
+                    pnl_slippage=dir_slip_accum,
+                    pnl_total=pnl_total,
+                    bars_held=i - dir_entry_idx,
+                )
+            )
+            dir_open = False
+
+        if (
+            dir_open
+            and prev_dir_qty != 0.0
+            and new_dir_qty != 0.0
+            and (prev_dir_qty > 0 > new_dir_qty or prev_dir_qty < 0 < new_dir_qty)
+        ):
+            pnl_price_trade = (price - dir_entry_price) * dir_entry_qty
+            pnl_total = pnl_price_trade + dir_funding_accum - dir_fee_accum - dir_slip_accum
+            side_label2: Literal["long", "short"] = "long" if dir_entry_qty > 0 else "short"
+            lifecycles.append(
+                TradeLifecycle(
+                    open_ts=dir_entry_ts,
+                    close_ts=ts,
+                    side=side_label2,
+                    qty=abs(dir_entry_qty),
+                    entry_price=dir_entry_price,
+                    exit_price=price,
+                    pnl_price=pnl_price_trade,
+                    pnl_funding=dir_funding_accum,
+                    pnl_fees=dir_fee_accum,
+                    pnl_slippage=dir_slip_accum,
+                    pnl_total=pnl_total,
+                    bars_held=i - dir_entry_idx,
+                )
+            )
+            dir_entry_ts = ts
+            dir_entry_idx = i
+            dir_entry_price = price
+            dir_entry_qty = new_dir_qty
+            dir_fee_accum = 0.0
+            dir_slip_accum = 0.0
+            dir_funding_accum = 0.0
 
         nav_after = _nav(state, price)
         gross = _gross_exposure(state, price)
@@ -429,7 +527,7 @@ def simulate_portfolio(
         )
         prev_price = price
 
-    return SimulationResult(bars=bars, trades=trades)
+    return SimulationResult(bars=bars, trades=trades, lifecycles=lifecycles)
 
 
 def _post_trade_enforce_leverage(

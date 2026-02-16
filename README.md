@@ -230,9 +230,8 @@ Backtest trades vs open/close:
 - The **Backtest Trades** table currently shows *rebalance legs* (spot and perp) per bar,
   not discrete open/close trades. That is why you often see two rows at the same timestamp
   (spot + perp legs).
-- Trade grouping into explicit **open/close** lifecycles is not implemented yet. If you want
-  per-trade entry/exit and realized PnL, we should add position tracking + trade grouping
-  in the simulator layer.
+- Trade grouping into explicit **open/close** lifecycles is now available via the lifecycle
+  output CSV and the dashboard lifecycle table.
 
 1. Fetch data:
 
@@ -246,10 +245,10 @@ Backtest trades vs open/close:
 .venv/bin/python -m ssh_trader.nav.replay --csv data/hyperliquid_btc_1h.csv --timeframe 1h --fill-missing --output out/nav_regimes.csv
 ```
 
-3. Run backtest (metrics + bars):
+3. Run backtest (metrics + bars + lifecycle):
 
 ```bash
-.venv/bin/python -m ssh_trader.backtest.run --csv data/hyperliquid_btc_1h.csv --timeframe 1h --fill-missing --output-metrics out/metrics.csv --output-bars out/bars.csv --output-trades out/trades.csv
+.venv/bin/python -m ssh_trader.backtest.run --csv data/hyperliquid_btc_1h.csv --timeframe 1h --fill-missing --output-metrics out/metrics.csv --output-bars out/bars.csv --output-trades out/trades.csv --output-lifecycle out/lifecycle.csv
 ```
 
 4. Run shadow simulation:
@@ -261,7 +260,7 @@ Backtest trades vs open/close:
 5. Build modern dark-mode dashboard:
 
 ```bash
-.venv/bin/python scripts/build_dashboard.py --title "BTC Hyperliquid Report" --bars out/bars.csv --metrics out/metrics.csv --shadow out/shadow_log.csv --trades out/trades.csv --output out/dashboard.html
+.venv/bin/python scripts/build_dashboard.py --title "BTC Hyperliquid Report" --bars out/bars.csv --metrics out/metrics.csv --shadow out/shadow_log.csv --trades out/trades.csv --lifecycle out/lifecycle.csv --ta-features out/ta_features.csv --output out/dashboard.html
 ```
 
 Open `out/dashboard.html` in your browser.

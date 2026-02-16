@@ -22,6 +22,7 @@ def _build_html(
     shadow: list[dict[str, str]],
     trades: list[dict[str, str]],
     ta_features: list[dict[str, str]],
+    lifecycle: list[dict[str, str]],
 ) -> str:
     payload = {
         "bars": bars,
@@ -29,6 +30,7 @@ def _build_html(
         "shadow": shadow,
         "trades": trades,
         "ta_features": ta_features,
+        "lifecycle": lifecycle,
         "generated_at_utc": datetime.now(tz=timezone.utc)
         .replace(microsecond=0)
         .isoformat()
@@ -634,6 +636,64 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           <div class="muted">Click a trade row to populate this panel.</div>
         </div>
       </div>
+
+      <div class="card">
+        <div class="section-title">
+          <div>Trade Lifecycle</div>
+          <div class="hint">Directional open → close trades</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>
+                  Open
+                  <span class="info" data-tip="Timestamp when directional position opens.">i</span>
+                </th>
+                <th>
+                  Close
+                  <span class="info" data-tip="Timestamp when directional position closes.">i</span>
+                </th>
+                <th>
+                  Side
+                  <span class="info" data-tip="Directional side: long or short.">i</span>
+                </th>
+                <th>
+                  Qty
+                  <span class="info" data-tip="Absolute size of directional position.">i</span>
+                </th>
+                <th>
+                  Entry
+                  <span class="info" data-tip="Entry price for the directional position.">i</span>
+                </th>
+                <th>
+                  Exit
+                  <span class="info" data-tip="Exit price for the directional position.">i</span>
+                </th>
+                <th>
+                  PnL (USD)
+                  <span
+                    class="info"
+                    data-tip="Total directional trade PnL (price + funding - fees - slippage)."
+                  >i</span>
+                </th>
+                <th>
+                  PnL %
+                  <span
+                    class="info"
+                    data-tip="Directional trade PnL / (entry price * qty)."
+                  >i</span>
+                </th>
+                <th>
+                  Bars
+                  <span class="info" data-tip="Bars held for this lifecycle trade.">i</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="lifecycleTable"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -648,7 +708,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         TA_BY_TS.set(row.timestamp, row);
       }}
     }}
+    const LIFECYCLE = DATA.lifecycle || [];
     let LAST_PAYLOAD = DATA;
+    window.__selectedLifecycleKey = "";
     let API_BASE = ""; // set by setupRerunControls()
 
     function toNum(v) {{
@@ -1096,8 +1158,9 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           }}
         }}
 
-        if (opts.highlightIdx != null) {{
-          const hi = opts.highlightIdx;
+        const hlist = opts.highlightIdxs || (opts.highlightIdx != null ? [opts.highlightIdx] : []);
+        for (const hi of hlist) {{
+          if (hi == null) continue;
           if (hi >= viewStart && hi <= viewEnd) {{
             const hx = xFor(hi);
             ctx.strokeStyle = "rgba(255,255,255,0.45)";
@@ -1551,7 +1614,14 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       return {{ resize }};
     }}
 
-    function renderTables(shadow, trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs) {{
+    function renderTables(
+      shadow,
+      trades,
+      barPnlByTs,
+      navDeltaUsdByTs,
+      navDeltaPctByTs,
+      lifecycles
+    ) {{
       const body = document.getElementById("shadowTable");
       const rows = shadow.slice(-250);
       body.innerHTML = rows.map(r => {{
@@ -1594,56 +1664,132 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           <td class="mono">${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}</td>
         </tr>`;
       }}).join("");
+
+      const lBody = document.getElementById("lifecycleTable");
+      if (lBody) {{
+        const selectedKey = window.__selectedLifecycleKey || "";
+        const lRows = lifecycles.slice(-250);
+        lBody.innerHTML = lRows.map(r => {{
+          const key = `${{r.open_ts}}|${{r.close_ts}}`;
+          const rowCls = key === selectedKey ? "row-selected" : "";
+          const qty = toNum(r.qty);
+          const entry = toNum(r.entry_price);
+          const pnl = toNum(r.pnl_total);
+          const denom = (qty != null && entry != null) ? (qty * entry) : null;
+          const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
+          return `<tr data-key="${{key}}" class="${{rowCls}}">
+            <td class="mono">${{r.open_ts || ""}}</td>
+            <td class="mono">${{r.close_ts || ""}}</td>
+            <td>${{r.side || ""}}</td>
+            <td class="mono">${{fmt6(r.qty || "")}}</td>
+            <td class="mono">${{fmt3(r.entry_price || "")}}</td>
+            <td class="mono">${{fmt3(r.exit_price || "")}}</td>
+            <td class="mono">${{fmt2(r.pnl_total || "")}}</td>
+            <td class="mono">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
+            <td class="mono">${{r.bars_held || ""}}</td>
+          </tr>`;
+        }}).join("");
+      }}
     }}
 
-    function renderTradeInspector(trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs) {{
+    function renderTradeInspector(
+      trades,
+      barPnlByTs,
+      navDeltaUsdByTs,
+      navDeltaPctByTs,
+      lifecycles
+    ) {{
       const panel = document.getElementById("tradeInspect");
       if (!panel) return;
-      const ts = window.__selectedTradeTs || "";
-      if (!ts) {{
+      const lifecycleKey = window.__selectedLifecycleKey || "";
+      const tradeTs = window.__selectedTradeTs || "";
+      const kv = [];
+
+      if (lifecycleKey) {{
+        const [openTs, closeTs] = lifecycleKey.split("|");
+        const lc = lifecycles.find(r => r.open_ts === openTs && r.close_ts === closeTs);
+        if (!lc) {{
+          panel.innerHTML = '<div class="muted">Selected lifecycle not found.</div>';
+          return;
+        }}
+        const qty = toNum(lc.qty);
+        const entry = toNum(lc.entry_price);
+        const pnl = toNum(lc.pnl_total);
+        const denom = (qty != null && entry != null) ? (qty * entry) : null;
+        const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
+
+        kv.push(["Open", lc.open_ts || ""]);
+        kv.push(["Close", lc.close_ts || ""]);
+        kv.push(["Side", lc.side || ""]);
+        kv.push(["Qty", fmt6(lc.qty || "")]);
+        kv.push(["Entry", fmt3(lc.entry_price || "")]);
+        kv.push(["Exit", fmt3(lc.exit_price || "")]);
+        kv.push(["PnL (USD)", fmt2(lc.pnl_total || "")]);
+        kv.push(["PnL %", pnlPct == null ? "" : fmtPct(pnlPct)]);
+        kv.push(["Bars held", lc.bars_held || ""]);
+
+        const taOpen = TA_BY_TS.get(openTs);
+        const taClose = TA_BY_TS.get(closeTs);
+        if (taOpen) {{
+          kv.push(["Open: Nearest level", `${{taOpen.nearest_level_kind || ""}}`]);
+          kv.push(["Open: Level center", taOpen.nearest_level_center || ""]);
+          kv.push(["Open: Level dist (ATR)", taOpen.nearest_level_distance_atr || ""]);
+          kv.push(["Open: Compression", taOpen.compress || ""]);
+          kv.push(["Open: Breakout long", taOpen.breakout_long || ""]);
+          kv.push(["Open: Breakout short", taOpen.breakout_short || ""]);
+          kv.push(["Open: Confluence long", taOpen.confluence_long || ""]);
+          kv.push(["Open: Confluence short", taOpen.confluence_short || ""]);
+          kv.push(["Open: Bias 4H", taOpen.bias_4h || ""]);
+        }}
+        if (taClose) {{
+          kv.push(["Close: Nearest level", `${{taClose.nearest_level_kind || ""}}`]);
+          kv.push(["Close: Level center", taClose.nearest_level_center || ""]);
+          kv.push(["Close: Level dist (ATR)", taClose.nearest_level_distance_atr || ""]);
+        }}
+      }} else if (tradeTs) {{
+        const trade = trades.find(r => (r.ts || r.timestamp || "") === tradeTs);
+        if (!trade) {{
+          panel.innerHTML = '<div class="muted">Selected trade not found.</div>';
+          return;
+        }}
+        const ta = TA_BY_TS.get(tradeTs);
+        const barPnl = barPnlByTs && tradeTs ? barPnlByTs.get(tradeTs) : null;
+        const navDeltaUsd = navDeltaUsdByTs && tradeTs ? navDeltaUsdByTs.get(tradeTs) : null;
+        const navDeltaPct = navDeltaPctByTs && tradeTs ? navDeltaPctByTs.get(tradeTs) : null;
+        const qty = toNum(trade.qty_delta || trade.qty);
+        const side = qty == null ? "" : (qty >= 0 ? "BUY" : "SELL");
+        kv.push(["Time", tradeTs]);
+        kv.push(["Leg", trade.leg || ""]);
+        kv.push(["Side", side]);
+        kv.push(["Qty", fmt6(trade.qty_delta || trade.qty || "")]);
+        kv.push(["Price", fmt3(trade.price || "")]);
+        kv.push(["Notional", fmt3(trade.notional || "")]);
+        kv.push(["Fee", fmt3(trade.fee || "")]);
+        kv.push(["Slippage", fmt3(trade.slippage || "")]);
+        kv.push(["Bar PnL (USD)", barPnl == null ? "" : fmt2(barPnl)]);
+        kv.push(["NAV Δ (USD)", navDeltaUsd == null ? "" : fmt2(navDeltaUsd)]);
+        kv.push(["NAV Δ %", navDeltaPct == null ? "" : fmtPct(navDeltaPct)]);
+
+        if (ta) {{
+          kv.push(["Nearest level", `${{ta.nearest_level_kind || ""}}`]);
+          kv.push(["Level center", ta.nearest_level_center || ""]);
+          kv.push(["Level dist (ATR)", ta.nearest_level_distance_atr || ""]);
+          kv.push(["Pivot high", ta.pivot_high || ""]);
+          kv.push(["Pivot low", ta.pivot_low || ""]);
+          kv.push(["Compression", ta.compress || ""]);
+          kv.push(["Breakout long", ta.breakout_long || ""]);
+          kv.push(["Breakout short", ta.breakout_short || ""]);
+          kv.push(["Sweep reclaim long", ta.sweep_reclaim_long || ""]);
+          kv.push(["Sweep reclaim short", ta.sweep_reclaim_short || ""]);
+          kv.push(["Confluence long", ta.confluence_long || ""]);
+          kv.push(["Confluence short", ta.confluence_short || ""]);
+          kv.push(["Bias 4H", ta.bias_4h || ""]);
+        }} else {{
+          kv.push(["TA features", "n/a (no matching timestamp)"]);
+        }}
+      }} else {{
         panel.innerHTML = '<div class="muted">Click a trade row to populate this panel.</div>';
         return;
-      }}
-      const trade = trades.find(r => (r.ts || r.timestamp || "") === ts);
-      if (!trade) {{
-        panel.innerHTML = '<div class="muted">Selected trade not found.</div>';
-        return;
-      }}
-      const ta = TA_BY_TS.get(ts);
-      const barPnl = barPnlByTs && ts ? barPnlByTs.get(ts) : null;
-      const navDeltaUsd = navDeltaUsdByTs && ts ? navDeltaUsdByTs.get(ts) : null;
-      const navDeltaPct = navDeltaPctByTs && ts ? navDeltaPctByTs.get(ts) : null;
-      const qty = toNum(trade.qty_delta || trade.qty);
-      const side = qty == null ? "" : (qty >= 0 ? "BUY" : "SELL");
-      const kv = [];
-      kv.push(["Time", ts]);
-      kv.push(["Leg", trade.leg || ""]);
-      kv.push(["Side", side]);
-      kv.push(["Qty", fmt6(trade.qty_delta || trade.qty || "")]);
-      kv.push(["Price", fmt3(trade.price || "")]);
-      kv.push(["Notional", fmt3(trade.notional || "")]);
-      kv.push(["Fee", fmt3(trade.fee || "")]);
-      kv.push(["Slippage", fmt3(trade.slippage || "")]);
-      kv.push(["Bar PnL (USD)", barPnl == null ? "" : fmt2(barPnl)]);
-      kv.push(["NAV Δ (USD)", navDeltaUsd == null ? "" : fmt2(navDeltaUsd)]);
-      kv.push(["NAV Δ %", navDeltaPct == null ? "" : fmtPct(navDeltaPct)]);
-
-      if (ta) {{
-        kv.push(["Nearest level", `${{ta.nearest_level_kind || ""}}`]);
-        kv.push(["Level center", ta.nearest_level_center || ""]);
-        kv.push(["Level dist (ATR)", ta.nearest_level_distance_atr || ""]);
-        kv.push(["Pivot high", ta.pivot_high || ""]);
-        kv.push(["Pivot low", ta.pivot_low || ""]);
-        kv.push(["Compression", ta.compress || ""]);
-        kv.push(["Breakout long", ta.breakout_long || ""]);
-        kv.push(["Breakout short", ta.breakout_short || ""]);
-        kv.push(["Sweep reclaim long", ta.sweep_reclaim_long || ""]);
-        kv.push(["Sweep reclaim short", ta.sweep_reclaim_short || ""]);
-        kv.push(["Confluence long", ta.confluence_long || ""]);
-        kv.push(["Confluence short", ta.confluence_short || ""]);
-        kv.push(["Bias 4H", ta.bias_4h || ""]);
-      }} else {{
-        kv.push(["TA features", "n/a (no matching timestamp)"]);
       }}
 
       const tipMap = {{
@@ -1700,6 +1846,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       const metrics = payload.metrics || [];
       const shadow = payload.shadow || [];
       const trades = payload.trades || [];
+      const lifecycles = payload.lifecycle || [];
       const gen = payload.generated_at_utc || "";
 
       const kpis = buildKpis(bars, metrics, shadow, trades);
@@ -1814,6 +1961,16 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       const showDirEntries = (document.getElementById("toggleDirEntries")?.checked ?? true);
       const selectedTs = window.__selectedTradeTs || "";
       const selectedIdx = selectedTs ? tsToIdx.get(selectedTs) : null;
+      const lifecycleKey = window.__selectedLifecycleKey || "";
+      let lifecycleEntryIdx = null;
+      let lifecycleExitIdx = null;
+      if (lifecycleKey) {{
+        const parts = lifecycleKey.split("|");
+        if (parts.length === 2) {{
+          lifecycleEntryIdx = tsToIdx.get(parts[0]);
+          lifecycleExitIdx = tsToIdx.get(parts[1]);
+        }}
+      }}
 
       if (showBH) {{
         makeMultiChart(
@@ -1925,7 +2082,11 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           showRegimeDots: showRegime,
           dirMarkers: (showDirEntries ? dirMarkers : []),
           dirMarkerMaxSpan: 800,
-          highlightIdx: selectedIdx == null ? null : selectedIdx,
+          highlightIdxs: [
+            selectedIdx == null ? null : selectedIdx,
+            lifecycleEntryIdx,
+            lifecycleExitIdx,
+          ],
           tooltip: (row) => {{
             const m = row.meta || {{}};
             const dn = toNum(m.directional_notional) ?? 0;
@@ -1994,8 +2155,21 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         }}
       );
 
-      renderTables(shadow, trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs);
-      renderTradeInspector(trades, barPnlByTs, navDeltaUsdByTs, navDeltaPctByTs);
+      renderTables(
+        shadow,
+        trades,
+        barPnlByTs,
+        navDeltaUsdByTs,
+        navDeltaPctByTs,
+        lifecycles
+      );
+      renderTradeInspector(
+        trades,
+        barPnlByTs,
+        navDeltaUsdByTs,
+        navDeltaPctByTs,
+        lifecycles
+      );
 
       const tBody = document.getElementById("tradeTable");
       if (tBody && !tBody.__wired) {{
@@ -2003,9 +2177,21 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           const tr = e.target.closest("tr[data-ts]");
           if (!tr) return;
           window.__selectedTradeTs = tr.getAttribute("data-ts") || "";
+          window.__selectedLifecycleKey = "";
           renderDashboard(LAST_PAYLOAD);
         }});
         tBody.__wired = true;
+      }}
+      const lBody = document.getElementById("lifecycleTable");
+      if (lBody && !lBody.__wired) {{
+        lBody.addEventListener("click", (e) => {{
+          const tr = e.target.closest("tr[data-key]");
+          if (!tr) return;
+          window.__selectedLifecycleKey = tr.getAttribute("data-key") || "";
+          window.__selectedTradeTs = "";
+          renderDashboard(LAST_PAYLOAD);
+        }});
+        lBody.__wired = true;
       }}
       return;
 
@@ -2319,6 +2505,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="TA features CSV from scripts/dump_ta_features.py",
     )
+    parser.add_argument("--lifecycle", type=Path, default=None, help="Lifecycle trades CSV output.")
     parser.add_argument("--output", type=Path, default=Path("dashboard.html"))
     args = parser.parse_args(argv)
 
@@ -2331,6 +2518,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.ta_features is not None and args.ta_features.exists()
         else []
     )
+    lifecycle = (
+        _read_csv(args.lifecycle) if args.lifecycle is not None and args.lifecycle.exists() else []
+    )
 
     html = _build_html(
         title=args.title,
@@ -2339,6 +2529,7 @@ def main(argv: list[str] | None = None) -> int:
         shadow=shadow,
         trades=trades,
         ta_features=ta_features,
+        lifecycle=lifecycle,
     )
     args.output.write_text(html, encoding="utf-8")
     print(f"wrote dashboard to {args.output}")

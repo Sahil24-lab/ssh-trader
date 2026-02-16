@@ -167,7 +167,8 @@ echo "[3/6] Running backtest"
   --initial-nav "${INITIAL_NAV}" \
   --output-metrics "${OUT_DIR}/metrics.csv" \
   --output-bars "${OUT_DIR}/bars.csv" \
-  --output-trades "${OUT_DIR}/trades.csv"
+  --output-trades "${OUT_DIR}/trades.csv" \
+  --output-lifecycle "${OUT_DIR}/lifecycle.csv"
 
 echo "[4/6] Running shadow mode"
 "${PYTHON_BIN}" -m ssh_trader.live.shadow_runner \
@@ -190,6 +191,7 @@ echo "[6/6] Building dashboard"
   --metrics "${OUT_DIR}/metrics.csv" \
   --shadow "${OUT_DIR}/shadow_log.csv" \
   --trades "${OUT_DIR}/trades.csv" \
+  --lifecycle "${OUT_DIR}/lifecycle.csv" \
   --ta-features "${OUT_DIR}/ta_features.csv" \
   --output "${OUT_DIR}/dashboard.html"
 
@@ -199,6 +201,7 @@ echo "Replay CSV: ${OUT_DIR}/nav_regimes.csv"
 echo "Backtest metrics: ${OUT_DIR}/metrics.csv"
 echo "Backtest bars: ${OUT_DIR}/bars.csv"
 echo "Backtest trades: ${OUT_DIR}/trades.csv"
+echo "Trade lifecycle: ${OUT_DIR}/lifecycle.csv"
 echo "Shadow log: ${OUT_DIR}/shadow_log.csv"
 echo "TA features: ${OUT_DIR}/ta_features.csv"
 echo "Data 1H: ${DATA_CSV}"
