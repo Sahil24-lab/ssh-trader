@@ -50,6 +50,9 @@ def _write_json(handler: BaseHTTPRequestHandler, status: int, obj: object) -> No
     payload = json.dumps(obj).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
     handler.send_header("Content-Length", str(len(payload)))
     handler.end_headers()
     handler.wfile.write(payload)
@@ -114,6 +117,7 @@ def _serialize_bars(result: object) -> list[dict[str, str]]:
         out.append(
             {
                 "timestamp": b.ts.isoformat().replace("+00:00", "Z"),
+                "price": str(b.price),
                 "nav": str(b.nav),
                 "regime": str(b.regime.value if isinstance(b.regime, Regime) else b.regime),
                 "carry_notional": str(b.carry_notional),
@@ -173,13 +177,14 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
     timeframe = _as_str(body, "timeframe", cfg.default_timeframe)
     fill_missing = _as_bool(body, "fill_missing", True)
 
-    initial_nav = _as_float(body, "initial_nav", 1_000_000.0)
+    initial_nav = _as_float(body, "initial_nav", 10_000.0)
     aggressiveness = _as_float(body, "aggressiveness", 0.5)
 
     leverage_cap = _as_float(body, "leverage_cap", 1.5)
     venue_cap_frac = _as_float(body, "venue_cap_frac", 0.30)
     max_drawdown = _as_float(body, "max_drawdown", 0.20)
     liq_buf = _as_float(body, "liquidation_buffer", 0.10)
+    target_dir_vol = _as_float(body, "target_dir_vol", 0.20)
 
     fee_bps = _as_float(body, "taker_fee_bps", 5.0)
     slip_bps = _as_float(body, "slippage_bps_at_1x_nav", 10.0)
@@ -197,7 +202,11 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
     )
     nav_cfg = RegimeConfig()
     comp_cfg = CompressionConfig()
-    sim_cfg = SimulatorConfig(initial_nav=initial_nav, liquidation_buffer=liq_buf)
+    sim_cfg = SimulatorConfig(
+        initial_nav=initial_nav,
+        liquidation_buffer=liq_buf,
+        target_dir_vol=target_dir_vol,
+    )
     fee_model = FeeModel(taker_fee_bps=fee_bps)
     slippage_model = SlippageModel(slippage_bps_at_1x_nav=slip_bps)
 
@@ -212,6 +221,8 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
         sim_config=sim_cfg,
     )
     metrics = compute_metrics(cast(Any, result))
+    metrics_rows = _serialize_metrics(metrics)
+    metrics_rows.insert(0, {"metric": "initial_nav", "value": str(initial_nav)})
 
     shadow_rows: list[dict[str, str]] = []
     if cfg.shadow_path is not None:
@@ -220,7 +231,7 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
     return {
         "bars": _serialize_bars(result),
         "trades": _serialize_trades(result),
-        "metrics": _serialize_metrics(metrics),
+        "metrics": metrics_rows,
         "shadow": shadow_rows,
     }
 
@@ -254,6 +265,14 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     class Handler(BaseHTTPRequestHandler):
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
         def do_GET(self) -> None:  # noqa: N802
             if self.path in ("/api/ping", "/api/ping/"):
                 _write_json(self, 200, {"ok": True})

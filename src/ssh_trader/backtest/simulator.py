@@ -87,6 +87,7 @@ class TradeEvent:
 @dataclass(frozen=True, slots=True)
 class BarResult:
     ts: datetime
+    price: float
     nav: float
     regime: Regime
     carry_notional: float
@@ -408,6 +409,7 @@ def simulate_portfolio(
         bars.append(
             BarResult(
                 ts=ts,
+                price=price,
                 nav=nav_after,
                 regime=regimes[i],
                 carry_notional=carry_notional,

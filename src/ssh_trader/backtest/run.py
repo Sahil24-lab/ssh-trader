@@ -38,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Expected input timeframe (e.g. 1h).",
     )
     p.add_argument(
+        "--initial-nav",
+        type=float,
+        default=None,
+        help="Override starting NAV (USD) (overrides config sim.initial_nav).",
+    )
+    p.add_argument(
         "--fill-missing",
         action="store_true",
         help="Fill missing intervals deterministically.",
@@ -163,6 +169,13 @@ def main(argv: list[str] | None = None) -> int:
         liquidation_buffer=float(sim_cfg.get("liquidation_buffer", 0.10)),
         target_dir_vol=float(sim_cfg.get("target_dir_vol", 0.20)),
     )
+    if args.initial_nav is not None:
+        sim_config = SimulatorConfig(
+            initial_nav=float(args.initial_nav),
+            carry_funding_freq_hours=sim_config.carry_funding_freq_hours,
+            liquidation_buffer=sim_config.liquidation_buffer,
+            target_dir_vol=sim_config.target_dir_vol,
+        )
 
     fees_obj = cfg.get("fees", {})
     fees: dict[str, Any] = cast(dict[str, Any], fees_obj) if isinstance(fees_obj, dict) else {}
@@ -184,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     metrics = compute_metrics(result)
 
     rows = [
+        ["initial_nav", sim_config.initial_nav],
         ["cagr", metrics.cagr],
         ["sharpe", metrics.sharpe],
         ["sortino", metrics.sortino],
@@ -213,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
             w.writerow(
                 [
                     "timestamp",
+                    "price",
                     "nav",
                     "regime",
                     "carry_notional",
@@ -230,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
                 w.writerow(
                     [
                         bar.ts.isoformat().replace("+00:00", "Z"),
+                        bar.price,
                         bar.nav,
                         bar.regime.value,
                         bar.carry_notional,

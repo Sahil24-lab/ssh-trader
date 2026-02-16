@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -26,6 +27,10 @@ def _build_html(
         "metrics": metrics,
         "shadow": shadow,
         "trades": trades,
+        "generated_at_utc": datetime.now(tz=timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
     }
     data_json = json.dumps(payload)
     return f"""<!doctype html>
@@ -102,7 +107,9 @@ def _build_html(
       margin-top: 8px;
     }}
     .field label {{
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       color: var(--muted);
       font-size: 0.82rem;
       margin-bottom: 6px;
@@ -134,6 +141,55 @@ def _build_html(
     body.light .cmd {{ background: rgba(255,255,255,0.8); }}
     .actions {{ display: flex; gap: 10px; margin-top: 10px; align-items: center; }}
     .note {{ color: var(--muted); font-size: 0.86rem; }}
+    .prog {{
+      margin-top: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid var(--grid);
+      background: rgba(0, 0, 0, 0.10);
+      overflow: hidden;
+      display: none;
+    }}
+    body.light .prog {{ background: rgba(255,255,255,0.65); }}
+    .prog .bar {{
+      height: 100%;
+      width: 35%;
+      background: linear-gradient(90deg, rgba(77,211,255,0.25), rgba(77,211,255,0.95));
+      animation: prog 1.1s ease-in-out infinite;
+      border-radius: 999px;
+    }}
+    @keyframes prog {{
+      0% {{ transform: translateX(-80%); opacity: 0.65; }}
+      50% {{ opacity: 1; }}
+      100% {{ transform: translateX(320%); opacity: 0.65; }}
+    }}
+    .legend {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      font-weight: 650;
+    }}
+    .swatch {{
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      display: inline-block;
+      margin-right: 6px;
+      border: 1px solid var(--grid);
+      vertical-align: middle;
+    }}
+    .toggle {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+    }}
+    .toggle input {{ cursor: pointer; }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -147,11 +203,35 @@ def _build_html(
       padding: 12px;
       box-shadow: 0 10px 30px var(--shadow);
     }}
+    .card.mb {{ margin-bottom: 14px; }}
     .card.hi {{
       box-shadow: 0 10px 30px var(--shadow), 0 0 0 1px rgba(255,255,255,0.02),
         0 0 50px var(--glow);
     }}
     .label {{ color: var(--muted); font-size: 0.82rem; margin-bottom: 6px; }}
+    .label-row {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }}
+    .label-row .label {{ margin-bottom: 0; }}
+    .info {{
+      width: 18px;
+      height: 18px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      border: 1px solid var(--grid);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1;
+      cursor: help;
+      user-select: none;
+      flex: 0 0 auto;
+    }}
+    .info:hover {{ color: var(--text); }}
     .value {{ font-size: 1.25rem; font-weight: 800; }}
     .value.small {{ font-size: 1.05rem; }}
     .row {{
@@ -200,6 +280,25 @@ def _build_html(
       background: rgba(255, 255, 255, 0.95);
       color: var(--text);
     }}
+    .infotip {{
+      position: fixed;
+      pointer-events: none;
+      background: rgba(10, 14, 25, 0.92);
+      border: 1px solid var(--grid);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      box-shadow: 0 12px 28px var(--shadow);
+      max-width: 320px;
+      display: none;
+      z-index: 9999;
+      white-space: pre-wrap;
+    }}
+    body.light .infotip {{
+      background: rgba(255, 255, 255, 0.95);
+      color: var(--text);
+    }}
     .table-wrap {{
       max-height: 280px;
       overflow: auto;
@@ -229,76 +328,168 @@ def _build_html(
     <div class="top">
       <div>
         <div class="title">Trading Research Dashboard</div>
-        <div class="sub">Backtest and shadow-mode outcome viewer</div>
+        <div id="subTitle" class="sub">Backtest and shadow-mode outcome viewer</div>
       </div>
       <button id="themeBtn" class="btn">Toggle Theme</button>
     </div>
 
     <div id="kpis" class="grid"></div>
 
-    <div class="card">
+    <div class="card mb">
       <div class="section-title">
         <div>Rerun Simulation</div>
         <div class="hint">Run button works when served locally</div>
       </div>
       <div class="controls">
         <div class="field">
-          <label for="csvPath">CSV path</label>
+          <label for="csvPath">
+            CSV path
+            <span class="info" data-tip="Input OHLCV CSV (UTC timestamps).">i</span>
+          </label>
           <input id="csvPath" value="data/hyperliquid_btc_1h.csv" />
         </div>
         <div class="field">
-          <label for="timeframe">Timeframe</label>
+          <label for="timeframe">
+            Timeframe
+            <span class="info" data-tip="Expected timeframe of the input CSV (e.g. 1h).">i</span>
+          </label>
           <input id="timeframe" value="1h" />
         </div>
         <div class="field">
-          <label for="initialNav">Starting NAV (USD)</label>
-          <input id="initialNav" value="1000000" />
+          <label for="initialNav">
+            Starting NAV (USD)
+            <span class="info" data-tip="Configured starting portfolio equity in USD.">i</span>
+          </label>
+          <input id="initialNav" value="10,000" />
         </div>
         <div class="field">
-          <label for="aggr">Guidance aggressiveness (0..1)</label>
+          <label for="aggr">
+            Guidance aggressiveness (0..1)
+            <span
+              class="info"
+              data-tip="Scales exposure targets within the regime policy bands.
+Higher = more aggressive allocation."
+            >i</span>
+          </label>
           <input id="aggr" value="0.5" />
         </div>
         <div class="field">
-          <label for="levCap">Leverage cap</label>
+          <label for="levCap">
+            Portfolio leverage cap
+            <span
+              class="info"
+              data-tip="Internal risk limit: gross exposure / NAV.
+This is NOT the exchange maximum leverage."
+            >i</span>
+          </label>
           <input id="levCap" value="1.5" />
         </div>
         <div class="field">
-          <label for="venueCap">Venue cap (0..1)</label>
-          <input id="venueCap" value="0.3" />
+          <label for="venueCap">
+            Venue cap
+            <span
+              class="info"
+              data-tip="Max fraction of NAV allowed to be deployed on this single venue
+(carry + directional combined)."
+            >i</span>
+          </label>
+          <input id="venueCap" value="0.30" />
         </div>
         <div class="field">
-          <label for="maxDd">Max drawdown (0..1)</label>
+          <label for="maxDd">
+            Max drawdown (0..1)
+            <span
+              class="info"
+              data-tip="Kill-switch threshold:
+If (peak NAV - current NAV) / peak NAV exceeds this,
+the risk governor switches to carry-only or flat."
+            >i</span>
+          </label>
           <input id="maxDd" value="0.2" />
         </div>
         <div class="field">
-          <label for="liqBuf">Liquidation buffer (0..1)</label>
+          <label for="liqBuf">
+            Liquidation buffer (0..1)
+            <span
+              class="info"
+              data-tip="Safety haircut applied to the leverage cap.
+Effective cap = leverage_cap * (1 - buffer).
+Proxy for liquidation risk; explicit liquidation price modeling is not implemented yet."
+            >i</span>
+          </label>
           <input id="liqBuf" value="0.1" />
+        </div>
+        <div class="field">
+          <label for="dirRisk">
+            Directional risk budget (target vol)
+            <span
+              class="info"
+              data-tip="Directional sizing knob: target annualized vol for the directional overlay
+(lower = smaller directional position). Not a strict 1% stop-loss model."
+            >i</span>
+          </label>
+          <input id="dirRisk" value="0.01" />
         </div>
       </div>
       <div class="actions">
         <button id="runSim" class="btn small">Run Simulation</button>
-        <button id="copyCmd" class="btn small">Copy CLI Command</button>
         <div id="runStatus" class="note"></div>
       </div>
-      <details style="margin-top: 10px;">
-        <summary class="note">Advanced: CLI command</summary>
-        <textarea id="cmdBox" class="cmd" readonly></textarea>
-        <div class="note">
-          If the Run button is disabled, start the server with `scripts/serve_dashboard.py`
-          and open the dashboard at `http://127.0.0.1:8000/`.
-        </div>
-      </details>
+      <div id="runProg" class="prog"><div class="bar"></div></div>
     </div>
 
     <div class="row">
       <div class="card hi">
         <div class="section-title">
-          <div>NAV</div>
+          <div>NAV vs Buy & Hold</div>
           <div class="hint">Wheel zoom, drag pan, hover for tooltip</div>
         </div>
         <div class="chart-wrap">
           <canvas id="navCanvas"></canvas>
           <div id="navTip" class="tooltip mono"></div>
+        </div>
+        <div class="legend">
+          <span>
+            <span class="swatch" style="background: rgba(77,211,255,0.95)"></span>
+            Strategy NAV
+          </span>
+          <span>
+            <span class="swatch" style="background: rgba(255,255,255,0.65)"></span>
+            Buy & hold NAV
+          </span>
+          <label class="toggle">
+            <input id="toggleBH" type="checkbox" checked />
+            Show buy & hold
+          </label>
+          <label class="toggle">
+            <input id="toggleTrades" type="checkbox" checked />
+            Show trade markers
+          </label>
+          <label class="toggle">
+            <input id="toggleRegime" type="checkbox" checked />
+            Show regime changes
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">
+          <div>Price (Close)</div>
+          <div class="hint">Underlying asset price over time</div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="pxCanvas"></canvas>
+          <div id="pxTip" class="tooltip mono"></div>
+        </div>
+        <div class="legend">
+          <span>
+            <span class="swatch" style="background: rgba(255,255,255,0.85)"></span>
+            Price
+          </span>
+          <label class="toggle">
+            <input id="toggleDirEntries" type="checkbox" checked />
+            Show directional entries
+          </label>
         </div>
       </div>
 
@@ -373,8 +564,11 @@ def _build_html(
     </div>
   </div>
 
+  <div id="infoTip" class="infotip"></div>
+
   <script>
     const DATA = {data_json};
+    let API_BASE = ""; // set by setupRerunControls()
 
     function toNum(v) {{
       const n = Number(v);
@@ -420,6 +614,36 @@ def _build_html(
       return String(x).padStart(2, "0");
     }}
 
+    function fmtDateTime(d) {{
+      const dd = pad2(d.getUTCDate());
+      const mm = pad2(d.getUTCMonth() + 1);
+      const yyyy = d.getUTCFullYear();
+      const hh = pad2(d.getUTCHours());
+      const min = pad2(d.getUTCMinutes());
+      return `${{dd}}/${{mm}}/${{yyyy}} ${{hh}}:${{min}} UTC`;
+    }}
+
+    function fmtDate(d) {{
+      const dd = pad2(d.getUTCDate());
+      const mm = pad2(d.getUTCMonth() + 1);
+      const yyyy = d.getUTCFullYear();
+      return `${{dd}}/${{mm}}/${{yyyy}}`;
+    }}
+
+    function fmtDuration(ms) {{
+      const dayMs = 86400 * 1000;
+      const days = Math.max(0, Math.floor(ms / dayMs));
+      const months = Math.floor(days / 30);
+      const remDays = days - months * 30;
+      const years = Math.floor(months / 12);
+      const remMonths = months - years * 12;
+      const parts = [];
+      if (years) parts.push(`${{years}}y`);
+      if (remMonths) parts.push(`${{remMonths}}mo`);
+      if (remDays || !parts.length) parts.push(`${{remDays}}d`);
+      return parts.join(" ");
+    }}
+
     function formatTick(date, spanMs) {{
       const y = date.getUTCFullYear();
       const m = pad2(date.getUTCMonth() + 1);
@@ -437,9 +661,10 @@ def _build_html(
     function metricCard(label, value, extra, helpText) {{
       const cls = extra ? "value small" : "value";
       const ex = extra ? `<div class="label">${{extra}}</div>` : "";
-      const title = helpText ? `title="${{helpText.replaceAll('"', "'")}}"` : "";
-      return `<div class="card" ${{title}}>
-        <div class="label">${{label}}</div>
+      const tip = helpText ? helpText.replaceAll('"', "'") : "";
+      const info = helpText ? `<span class="info" data-tip="${{tip}}">i</span>` : "";
+      return `<div class="card">
+        <div class="label-row"><div class="label">${{label}}</div>${{info}}</div>
         <div class="${{cls}}">${{value}}</div>
         ${{ex}}
       </div>`;
@@ -449,16 +674,28 @@ def _build_html(
       const kpis = [];
       const map = new Map(metrics.map(m => [m.metric, m.value]));
 
+      const initialNavMetric = toNum(map.get("initial_nav"));
       const nav0 = bars.length ? toNum(bars[0].nav) : null;
       const navN = bars.length ? toNum(bars[bars.length - 1].nav) : null;
+      const px0 = bars.length ? toNum(bars[0].price) : null;
+      const pxN = bars.length ? toNum(bars[bars.length - 1].price) : null;
       const start = bars.length ? bars[0].timestamp : "";
       const end = bars.length ? bars[bars.length - 1].timestamp : "";
       const orderCount = shadow.reduce((acc, r) => {{
         return acc + ((r.intended_order || "").length ? 1 : 0);
       }}, 0);
 
-      const pnl = (nav0 != null && navN != null) ? (navN - nav0) : null;
-      const ret = (nav0 != null && navN != null && nav0 !== 0) ? ((navN / nav0) - 1) : null;
+      const navStart = initialNavMetric != null ? initialNavMetric : nav0;
+      const pnl = (navStart != null && navN != null) ? (navN - navStart) : null;
+      const ret =
+        (navStart != null && navN != null && navStart !== 0) ? ((navN / navStart) - 1) : null;
+      const bhNavN =
+        (navStart != null && px0 != null && pxN != null && px0 !== 0)
+          ? (navStart * (pxN / px0))
+          : null;
+      const bhRet =
+        (navStart != null && bhNavN != null && navStart !== 0) ? ((bhNavN / navStart) - 1) : null;
+      const excessRet = (ret != null && bhRet != null) ? (ret - bhRet) : null;
 
       kpis.push(metricCard(
         "Bars",
@@ -480,11 +717,20 @@ def _build_html(
         "Count of intended orders produced in shadow mode (skipped rows do not count)."
       ));
       kpis.push(metricCard(
-        "Starting NAV",
-        nav0 == null ? "n/a" : fmt2(nav0),
+        "Initial NAV",
+        navStart == null ? "n/a" : fmt2(navStart),
         "USD",
-        "Starting portfolio equity (simulated NAV) in USD."
+        "Configured starting portfolio equity (USD)."
       ));
+      if (nav0 != null && initialNavMetric != null) {{
+        kpis.push(metricCard(
+          "NAV after first rebalance",
+          fmt2(nav0),
+          "USD",
+          "The simulator rebalances at the first bar close, "
+            + "so fees/slippage may change NAV immediately."
+        ));
+      }}
 
       const keys = [
         ["cagr", "CAGR", "Compound annual growth rate from NAV series."],
@@ -544,7 +790,27 @@ def _build_html(
           )
         );
       }}
-      return kpis.slice(0, 12);
+      if (bhRet != null) {{
+        kpis.push(
+          metricCard(
+            "Buy & hold return",
+            fmtPct(bhRet),
+            "",
+            "Buy & hold return computed from the underlying close price in the bars export."
+          )
+        );
+      }}
+      if (excessRet != null) {{
+        kpis.push(
+          metricCard(
+            "Excess return",
+            fmtPct(excessRet),
+            "",
+            "Excess return = strategy total return - buy & hold return."
+          )
+        );
+      }}
+      return kpis.slice(0, 16);
     }}
 
     function makeChart(canvas, tipEl, series, opts) {{
@@ -622,7 +888,7 @@ def _build_html(
         ctx.fillText(fmt3(yMax), 8, y0 + 6);
         ctx.fillText(fmt3(yMin), 8, y1 + 4);
 
-        // Trade markers
+        // Trade markers (dots along the baseline)
         if (opts.markers && opts.markers.length) {{
           for (const idx of opts.markers) {{
             if (idx < viewStart || idx > viewEnd) continue;
@@ -643,6 +909,36 @@ def _build_html(
             ctx.beginPath();
             ctx.arc(mx, y1 + 10, 2.2, 0, Math.PI * 2);
             ctx.fill();
+          }}
+        }}
+
+        // Directional entry markers (triangles at the price line)
+        if (opts.dirMarkers && opts.dirMarkers.length) {{
+          const spanBars = viewEnd - viewStart;
+          const maxSpan = opts.dirMarkerMaxSpan != null ? opts.dirMarkerMaxSpan : 600;
+          if (spanBars <= maxSpan) {{
+            for (const m of opts.dirMarkers) {{
+              const idx = m.idx;
+              if (idx < viewStart || idx > viewEnd) continue;
+              const row = series[idx];
+              if (!row || row.y == null) continue;
+              const mx = xFor(idx);
+              const my = yFor(row.y);
+              const up = m.side === "long";
+              ctx.fillStyle = up ? "rgba(74,212,138,0.95)" : "rgba(255,107,122,0.95)";
+              ctx.beginPath();
+              if (up) {{
+                ctx.moveTo(mx, my - 8);
+                ctx.lineTo(mx - 6, my + 4);
+                ctx.lineTo(mx + 6, my + 4);
+              }} else {{
+                ctx.moveTo(mx, my + 8);
+                ctx.lineTo(mx - 6, my - 4);
+                ctx.lineTo(mx + 6, my - 4);
+              }}
+              ctx.closePath();
+              ctx.fill();
+            }}
           }}
         }}
 
@@ -903,6 +1199,51 @@ def _build_html(
         ctx.fillText(fmt3(yMax), 8, y0 + 6);
         ctx.fillText(fmt3(yMin), 8, y1 + 4);
 
+        // Trade markers and regime change dots use seriesList[0].meta when available.
+        if (opts.markers && opts.markers.length) {{
+          for (const idx of opts.markers) {{
+            if (idx < viewStart || idx > viewEnd) continue;
+            const mx = xFor(idx);
+            const meta = seriesList[0][idx] ? (seriesList[0][idx].meta || null) : null;
+            let pnl = null;
+            if (meta) {{
+              const p = toNum(meta.pnl_price);
+              const f = toNum(meta.pnl_funding);
+              const fe = toNum(meta.pnl_fees);
+              const sl = toNum(meta.pnl_slippage);
+              if (p != null && f != null && fe != null && sl != null) {{
+                pnl = p + f + fe + sl;
+              }}
+            }}
+            const isWin = pnl != null ? pnl >= 0 : true;
+            ctx.fillStyle = isWin ? "rgba(74,212,138,0.95)" : "rgba(255,107,122,0.95)";
+            ctx.beginPath();
+            ctx.arc(mx, y1 + 10, 2.2, 0, Math.PI * 2);
+            ctx.fill();
+          }}
+        }}
+
+        if (opts.showRegimeDots) {{
+          let prev = null;
+          for (let i = viewStart; i <= viewEnd; i++) {{
+            const m = seriesList[0][i].meta || null;
+            const r = m ? (m.regime || null) : null;
+            if (r == null) continue;
+            if (r !== prev) {{
+              const xx = xFor(i);
+              const yy = y1 + 10;
+              let col = "rgba(77,211,255,0.9)";
+              if (r === "RISK_ON") col = "rgba(74,212,138,0.95)";
+              if (r === "RISK_OFF") col = "rgba(255,107,122,0.95)";
+              ctx.fillStyle = col;
+              ctx.beginPath();
+              ctx.arc(xx, yy, 2.4, 0, Math.PI * 2);
+              ctx.fill();
+              prev = r;
+            }}
+          }}
+        }}
+
         for (let si = 0; si < seriesList.length; si++) {{
           const s = seriesList[si];
           ctx.strokeStyle = opts.colors[si];
@@ -1085,9 +1426,23 @@ def _build_html(
       const metrics = payload.metrics || [];
       const shadow = payload.shadow || [];
       const trades = payload.trades || [];
+      const gen = payload.generated_at_utc || "";
 
       const kpis = buildKpis(bars, metrics, shadow, trades);
       document.getElementById("kpis").innerHTML = kpis.join("");
+
+      const start = bars.length ? bars[0].timestamp : "";
+      const end = bars.length ? bars[bars.length - 1].timestamp : "";
+      const subEl = document.getElementById("subTitle");
+      if (subEl) {{
+        const sdt = parseIso(start);
+        const edt = parseIso(end);
+        const dur = (sdt && edt) ? fmtDuration(edt.getTime() - sdt.getTime()) : "";
+        const sTxt = sdt ? fmtDate(sdt) : start;
+        const eTxt = edt ? fmtDate(edt) : end;
+        const span = dur ? (" (" + dur + ")") : "";
+        subEl.textContent = `Data ${{sTxt}} → ${{eTxt}}${{span}}`;
+      }}
 
       const tsToIdx = new Map();
       for (let i = 0; i < bars.length; i++) {{
@@ -1105,11 +1460,35 @@ def _build_html(
         y: toNum(b.nav),
         meta: b,
       }}));
+      const pxSeries = bars.map(b => ({{
+        t: b.timestamp,
+        y: toNum(b.price),
+        meta: b,
+      }}));
       const levSeries = bars.map(b => ({{
         t: b.timestamp,
         y: toNum(b.leverage),
         meta: b,
       }}));
+
+      const metricMap = new Map(metrics.map(m => [m.metric, m.value]));
+      const initialNavMetric = toNum(metricMap.get("initial_nav"));
+
+      const nav0 = navSeries.length ? navSeries[0].y : null;
+      const px0 = pxSeries.length ? pxSeries[0].y : null;
+      const navStart = initialNavMetric != null ? initialNavMetric : nav0;
+      const bhSeries = bars.map((b, i) => {{
+        const px = pxSeries[i].y;
+        let bh = null;
+        if (navStart != null && px0 != null && px != null && px0 !== 0) {{
+          bh = navStart * (px / px0);
+        }}
+        return {{
+          t: b.timestamp,
+          y: bh,
+          meta: b,
+        }};
+      }});
 
       const barPnlByTs = new Map();
       for (const b of bars) {{
@@ -1136,60 +1515,132 @@ def _build_html(
       }}));
 
       const navCanvas = resetCanvas("navCanvas");
+      const pxCanvas = resetCanvas("pxCanvas");
       const levCanvas = resetCanvas("levCanvas");
       const expCanvas = resetCanvas("expCanvas");
 
+      const showBH = (document.getElementById("toggleBH")?.checked ?? true);
+      const showTrades = (document.getElementById("toggleTrades")?.checked ?? true);
+      const showRegime = (document.getElementById("toggleRegime")?.checked ?? true);
+      const showDirEntries = (document.getElementById("toggleDirEntries")?.checked ?? true);
+
+      if (showBH) {{
+        makeMultiChart(
+          navCanvas,
+          document.getElementById("navTip"),
+          [navSeries, bhSeries],
+          {{
+            colors: ["rgba(77,211,255,0.95)", "rgba(255,255,255,0.65)"],
+            markers: showTrades ? tradeMarkers : [],
+            showRegimeDots: showRegime,
+            tooltip: (t, vals) => {{
+              const nav = vals[0];
+              const bh = vals[1];
+              const idx = tsToIdx.get(t);
+              const m = (idx != null) ? bars[idx] : {{}};
+              const carryNotional = toNum(m.carry_notional);
+              const dirNotional = toNum(m.directional_notional);
+              const pnl =
+                (toNum(m.pnl_price) ?? 0) +
+                (toNum(m.pnl_funding) ?? 0) +
+                (toNum(m.pnl_fees) ?? 0) +
+                (toNum(m.pnl_slippage) ?? 0);
+              const carryP =
+                (carryNotional != null && nav != null && nav !== 0)
+                  ? (carryNotional / nav)
+                  : null;
+              const dirP =
+                (dirNotional != null && nav != null && nav !== 0) ? (dirNotional / nav) : null;
+              const dirDir = (dirNotional ?? 0) >= 0 ? "LONG" : "SHORT";
+              const carryLine =
+                `Carry=${{fmt2(carryNotional)}} USD ` +
+                `(${{carryP == null ? "n/a" : fmtPct(carryP)}}) ` +
+                "(spot long / perp short)";
+              const dirLine =
+                `Directional=${{fmt2(dirNotional)}} USD ` +
+                `(${{dirP == null ? "n/a" : fmtPct(dirP)}}) ` +
+                `(${{dirDir}} perp)`;
+              const rel = (nav != null && bh != null && bh !== 0) ? ((nav / bh) - 1) : null;
+              return [
+                t,
+                `Strategy NAV=${{nav == null ? "n/a" : fmt2(nav)}} USD`,
+                `Buy&Hold NAV=${{bh == null ? "n/a" : fmt2(bh)}} USD`,
+                `Strategy vs B&H=${{rel == null ? "n/a" : fmtPct(rel)}}`,
+                `Price=${{fmt2(toNum(m.price) ?? 0)}}`,
+                `Leverage=${{fmt3(m.leverage)}}`,
+                `Regime=${{m.regime || ""}}`,
+                carryLine,
+                dirLine,
+                `Gross exposure=${{fmt2(m.gross_exposure)}} USD`,
+                `Bar PnL=${{fmt2(pnl)}} USD`,
+                `Funding PnL=${{fmt2(m.pnl_funding)}} USD`,
+                `Fees=${{fmt2(m.pnl_fees)}} USD`,
+                `Slippage=${{fmt2(m.pnl_slippage)}} USD`,
+                `Kill switch=${{m.kill_switch_active}}`,
+              ].join("\\n");
+            }},
+          }}
+        );
+      }} else {{
+        makeChart(
+          navCanvas,
+          document.getElementById("navTip"),
+          navSeries,
+          {{
+            color: "rgba(77,211,255,0.95)",
+            label: "nav",
+            markers: showTrades ? tradeMarkers : [],
+            showRegimeDots: showRegime,
+          }},
+        );
+      }}
+
+      // Directional entries: mark transitions from ~0 -> non-zero and sign changes.
+      const dirMarkers = [];
+      for (let i = 1; i < bars.length; i++) {{
+        const prev = toNum(bars[i - 1].directional_notional) ?? 0;
+        const cur = toNum(bars[i].directional_notional) ?? 0;
+        const eps = 1e-9;
+        if (Math.abs(prev) <= eps && Math.abs(cur) > eps) {{
+          dirMarkers.push({{ idx: i, side: cur >= 0 ? "long" : "short" }});
+        }} else if (Math.abs(prev) > eps && Math.abs(cur) > eps && (prev > 0) !== (cur > 0)) {{
+          dirMarkers.push({{ idx: i, side: cur >= 0 ? "long" : "short" }});
+        }}
+      }}
+
       makeChart(
-        navCanvas,
-        document.getElementById("navTip"),
-        navSeries,
+        pxCanvas,
+        document.getElementById("pxTip"),
+        pxSeries,
         {{
-          color: "rgba(77,211,255,0.95)",
-          label: "nav",
-          markers: tradeMarkers,
-          showRegimeDots: true,
+          color: "rgba(255,255,255,0.85)",
+          label: "price",
+          markers: showTrades ? tradeMarkers : [],
+          showRegimeDots: showRegime,
+          dirMarkers: (showDirEntries ? dirMarkers : []),
+          dirMarkerMaxSpan: 800,
           tooltip: (row) => {{
             const m = row.meta || {{}};
-            const nav = toNum(m.nav);
-            const carryNotional = toNum(m.carry_notional);
-            const dirNotional = toNum(m.directional_notional);
-            const pnl =
-              (toNum(m.pnl_price) ?? 0) +
-              (toNum(m.pnl_funding) ?? 0) +
-              (toNum(m.pnl_fees) ?? 0) +
-              (toNum(m.pnl_slippage) ?? 0);
-            const carryP =
-              (carryNotional != null && nav != null && nav !== 0)
-                ? (carryNotional / nav)
-                : null;
-            const dirP =
-              (dirNotional != null && nav != null && nav !== 0) ? (dirNotional / nav) : null;
-            const dirDir = (dirNotional ?? 0) >= 0 ? "LONG" : "SHORT";
-            const carryLine =
-              `Carry=${{fmt2(carryNotional)}} USD ` +
-              `(${{carryP == null ? "n/a" : fmtPct(carryP)}}) ` +
-              "(spot long / perp short)";
-            const dirLine =
-              `Directional=${{fmt2(dirNotional)}} USD ` +
-              `(${{dirP == null ? "n/a" : fmtPct(dirP)}}) ` +
-              `(${{dirDir}} perp)`;
+            const dn = toNum(m.directional_notional) ?? 0;
             return [
               row.t,
-              `NAV=${{fmt2(nav)}} USD`,
-              `Leverage=${{fmt3(m.leverage)}}`,
+              `Price=${{fmt2(toNum(m.price) ?? 0)}}`,
               `Regime=${{m.regime || ""}}`,
-              carryLine,
-              dirLine,
-              `Gross exposure=${{fmt2(m.gross_exposure)}} USD`,
-              `Bar PnL=${{fmt2(pnl)}} USD`,
-              `Funding PnL=${{fmt2(m.pnl_funding)}} USD`,
-              `Fees=${{fmt2(m.pnl_fees)}} USD`,
-              `Slippage=${{fmt2(m.pnl_slippage)}} USD`,
-              `Kill switch=${{m.kill_switch_active}}`,
+              `Directional notional=${{fmt2(dn)}} USD`,
             ].join("\\n");
           }},
         }}
       );
+
+      // Toggle re-render.
+      const toggleIds = ["toggleBH", "toggleTrades", "toggleRegime", "toggleDirEntries"];
+      for (const id of toggleIds) {{
+        const el = document.getElementById(id);
+        if (el && !el.__wired) {{
+          el.addEventListener("change", () => renderDashboard(payload));
+          el.__wired = true;
+        }}
+      }}
 
       makeChart(
         levCanvas,
@@ -1198,7 +1649,7 @@ def _build_html(
         {{
           color: "rgba(74,212,138,0.95)",
           label: "leverage",
-          markers: tradeMarkers,
+          markers: showTrades ? tradeMarkers : [],
           tooltip: (row) => {{
             const m = row.meta || {{}};
             return [
@@ -1231,17 +1682,68 @@ def _build_html(
       );
 
       renderTables(shadow, trades, barPnlByTs);
+      return;
+
+      makeMultiChart(
+        navCanvas,
+        document.getElementById("navTip"),
+        [navSeries, bhSeries],
+        {{
+          colors: ["rgba(77,211,255,0.95)", "rgba(255,255,255,0.65)"],
+          markers: tradeMarkers,
+          showRegimeDots: true,
+          tooltip: (t, vals) => {{
+            const nav = vals[0];
+            const bh = vals[1];
+            const idx = tsToIdx.get(t);
+            const m = (idx != null) ? bars[idx] : {{}};
+            const carryNotional = toNum(m.carry_notional);
+            const dirNotional = toNum(m.directional_notional);
+            const pnl =
+              (toNum(m.pnl_price) ?? 0) +
+              (toNum(m.pnl_funding) ?? 0) +
+              (toNum(m.pnl_fees) ?? 0) +
+              (toNum(m.pnl_slippage) ?? 0);
+            const carryP =
+              (carryNotional != null && nav != null && nav !== 0)
+                ? (carryNotional / nav)
+                : null;
+            const dirP =
+              (dirNotional != null && nav != null && nav !== 0) ? (dirNotional / nav) : null;
+            const dirDir = (dirNotional ?? 0) >= 0 ? "LONG" : "SHORT";
+            const carryLine =
+              `Carry=${{fmt2(carryNotional)}} USD ` +
+              `(${{carryP == null ? "n/a" : fmtPct(carryP)}}) ` +
+              "(spot long / perp short)";
+            const dirLine =
+              `Directional=${{fmt2(dirNotional)}} USD ` +
+              `(${{dirP == null ? "n/a" : fmtPct(dirP)}}) ` +
+              `(${{dirDir}} perp)`;
+            const rel = (nav != null && bh != null && bh !== 0) ? ((nav / bh) - 1) : null;
+            return [
+              t,
+              `Strategy NAV=${{nav == null ? "n/a" : fmt2(nav)}} USD`,
+              `Buy&Hold NAV=${{bh == null ? "n/a" : fmt2(bh)}} USD`,
+              `Strategy vs B&H=${{rel == null ? "n/a" : fmtPct(rel)}}`,
+              `Price=${{fmt2(toNum(m.price) ?? 0)}}`,
+              `Leverage=${{fmt3(m.leverage)}}`,
+              `Regime=${{m.regime || ""}}`,
+              carryLine,
+              dirLine,
+              `Gross exposure=${{fmt2(m.gross_exposure)}} USD`,
+              `Bar PnL=${{fmt2(pnl)}} USD`,
+              `Funding PnL=${{fmt2(m.pnl_funding)}} USD`,
+              `Fees=${{fmt2(m.pnl_fees)}} USD`,
+              `Slippage=${{fmt2(m.pnl_slippage)}} USD`,
+              `Kill switch=${{m.kill_switch_active}}`,
+            ].join("\\n");
+          }},
+        }}
+      );
     }}
 
     function main() {{
       renderDashboard(DATA);
-    }}
-
-    function _readInputNum(id, fallback) {{
-      const el = document.getElementById(id);
-      if (!el) return fallback;
-      const v = Number(el.value);
-      return Number.isFinite(v) ? v : fallback;
     }}
 
     function _readInputStr(id, fallback) {{
@@ -1251,118 +1753,94 @@ def _build_html(
       return s.length ? s : fallback;
     }}
 
-    function _buildConfigJson() {{
-      const initialNav = _readInputNum("initialNav", 10_000);
-      const aggr = clamp(_readInputNum("aggr", 0.5), 0, 1);
-      const levCap = _readInputNum("levCap", 15);
-      const venueCap = clamp(_readInputNum("venueCap", 0.3), 0, 1);
-      const maxDd = clamp(_readInputNum("maxDd", 0.2), 0, 1);
-      const liqBuf = clamp(_readInputNum("liqBuf", 0.1), 0, 1);
-      return {{
-        data: {{ fill_missing: true }},
-        guidance: {{ aggressiveness: aggr }},
-        risk: {{
-          leverage_cap: levCap,
-          venue_cap_frac: venueCap,
-          max_drawdown: maxDd,
-          kill_switch_action: "carry_only",
+    function setupInfoTips() {{
+      const tip = document.getElementById("infoTip");
+      if (!tip) return;
+
+      function showFor(el, clientX, clientY) {{
+        const txt = (el && el.dataset) ? (el.dataset.tip || "") : "";
+        if (!txt) return;
+        tip.textContent = txt;
+        tip.style.display = "block";
+        tip.style.left = `${{clientX + 12}}px`;
+        tip.style.top = `${{clientY + 12}}px`;
+      }}
+
+      function hide() {{
+        tip.style.display = "none";
+      }}
+
+      document.body.addEventListener(
+        "mouseenter",
+        (e) => {{
+          const t = e.target;
+          if (t && t.classList && t.classList.contains("info")) {{
+            showFor(t, e.clientX, e.clientY);
+          }}
         }},
-        sim: {{
-          initial_nav: initialNav,
-          liquidation_buffer: liqBuf,
+        true,
+      );
+      document.body.addEventListener("mousemove", (e) => {{
+        const t = e.target;
+        if (t && t.classList && t.classList.contains("info")) {{
+          showFor(t, e.clientX, e.clientY);
+        }}
+      }});
+      document.body.addEventListener(
+        "mouseleave",
+        (e) => {{
+          const t = e.target;
+          if (t && t.classList && t.classList.contains("info")) {{
+            hide();
+          }}
         }},
-      }};
+        true,
+      );
+      window.addEventListener("scroll", hide, {{ passive: true }});
+      window.addEventListener("blur", hide);
     }}
 
-    function _buildRerunCommand() {{
-      const csv = _readInputStr("csvPath", "data/hyperliquid_btc_1h.csv");
-      const tf = _readInputStr("timeframe", "1h");
-      const cfg = _buildConfigJson();
-      const jsonStr = JSON.stringify(cfg, null, 2);
-      const backtestCmd = [
-        ".venv/bin/python -m ssh_trader.backtest.run",
-        `--csv \"${{csv}}\"`,
-        `--timeframe \"${{tf}}\"`,
-        "--fill-missing",
-        "--config out/dashboard_config.json",
-        "--output-metrics out/metrics.csv",
-        "--output-bars out/bars.csv",
-        "--output-trades out/trades.csv",
-      ].join(" ");
-      const dashCmd = [
-        ".venv/bin/python scripts/build_dashboard.py",
-        `--title \"${{document.title}}\"`,
-        "--bars out/bars.csv",
-        "--metrics out/metrics.csv",
-        "--shadow out/shadow_log.csv",
-        "--trades out/trades.csv",
-        "--output out/dashboard.html",
-      ].join(" ");
-
-      return [
-        "# 1) Write config",
-        "mkdir -p out",
-        "cat > out/dashboard_config.json <<'JSON'",
-        jsonStr,
-        "JSON",
-        "",
-        "# 2) Run backtest (metrics + bars + trades)",
-        backtestCmd,
-        "",
-        "# 3) Rebuild dashboard (shadow log optional)",
-        dashCmd,
-      ].join(\"\\n\");
+    function _readInputNum(id, fallback) {{
+      const el = document.getElementById(id);
+      if (!el) return fallback;
+      const raw = String(el.value ?? "");
+      const cleaned = raw.replaceAll(",", "").trim();
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : fallback;
     }}
 
     function setupRerunControls() {{
-      const box = document.getElementById(\"cmdBox\");
-      const btn = document.getElementById(\"copyCmd\");
       const runBtn = document.getElementById(\"runSim\");
       const statusEl = document.getElementById(\"runStatus\");
-      if (!box || !btn || !runBtn || !statusEl) return;
-
-      function refresh() {{
-        box.value = _buildRerunCommand();
-      }}
-
-      const ids = [
-        \"csvPath\",
-        \"timeframe\",
-        \"initialNav\",
-        \"aggr\",
-        \"levCap\",
-        \"venueCap\",
-        \"maxDd\",
-        \"liqBuf\",
-      ];
-      for (const id of ids) {{
-        const el = document.getElementById(id);
-        if (el) {{
-          el.addEventListener(\"input\", refresh);
-        }}
-      }}
-      refresh();
-
-      btn.addEventListener(\"click\", async () => {{
-        const txt = box.value;
-        try {{
-          await navigator.clipboard.writeText(txt);
-          btn.textContent = \"Copied!\";
-          setTimeout(() => {{ btn.textContent = \"Copy Command\"; }}, 900);
-        }} catch {{
-          box.focus();
-          box.select();
-          document.execCommand(\"copy\");
-        }}
-      }});
+      const progEl = document.getElementById(\"runProg\");
+      if (!runBtn || !statusEl || !progEl) return;
 
       function setStatus(s) {{
         statusEl.textContent = s;
       }}
 
+      function setRunning(running) {{
+        progEl.style.display = running ? \"block\" : \"none\";
+        const ids = [
+          \"csvPath\",
+          \"timeframe\",
+          \"initialNav\",
+          \"aggr\",
+          \"levCap\",
+          \"venueCap\",
+          \"maxDd\",
+          \"liqBuf\",
+          \"dirRisk\",
+        ];
+        for (const id of ids) {{
+          const el = document.getElementById(id);
+          if (el) el.disabled = running;
+        }}
+      }}
+
       async function ping() {{
         try {{
-          const r = await fetch(\"/api/ping\", {{ cache: \"no-store\" }});
+          const r = await fetch(`${{API_BASE}}/api/ping`, {{ cache: \"no-store\" }});
           return r.ok;
         }} catch {{
           return false;
@@ -1370,26 +1848,51 @@ def _build_html(
       }}
 
       function buildRunRequest() {{
+        const levRaw = _readInputNum(\"levCap\", 1.5);
+        const venueRaw = _readInputNum(\"venueCap\", 0.30);
         return {{
           csv: _readInputStr(\"csvPath\", \"data/hyperliquid_btc_1h.csv\"),
           timeframe: _readInputStr(\"timeframe\", \"1h\"),
           fill_missing: true,
           initial_nav: _readInputNum(\"initialNav\", 10_000),
           aggressiveness: clamp(_readInputNum(\"aggr\", 0.5), 0, 1),
-          leverage_cap: _readInputNum(\"levCap\", 15),
-          venue_cap_frac: clamp(_readInputNum(\"venueCap\", 0.3), 0, 1),
+          leverage_cap: levRaw,
+          venue_cap_frac: venueRaw,
           max_drawdown: clamp(_readInputNum(\"maxDd\", 0.2), 0, 1),
           liquidation_buffer: clamp(_readInputNum(\"liqBuf\", 0.1), 0, 1),
+          target_dir_vol: clamp(_readInputNum(\"dirRisk\", 0.01), 0, 10),
         }};
       }}
 
+      function normalizeInputs() {{
+        const init = _readInputNum(\"initialNav\", 10_000);
+        const lev = _readInputNum(\"levCap\", 1.5);
+        const venue = _readInputNum(\"venueCap\", 0.30);
+        const dir = clamp(_readInputNum(\"dirRisk\", 0.01), 0, 10);
+
+        const initEl = document.getElementById(\"initialNav\");
+        if (initEl) {{
+          initEl.value = Number(init).toLocaleString(undefined, {{ maximumFractionDigits: 0 }});
+        }}
+        const levEl = document.getElementById(\"levCap\");
+        if (levEl) levEl.value = String(lev);
+        const venueEl = document.getElementById(\"venueCap\");
+        if (venueEl) venueEl.value = String(venue);
+        const dirEl = document.getElementById(\"dirRisk\");
+        if (dirEl) dirEl.value = String(dir);
+      }}
+
       async function runSimulation() {{
+        normalizeInputs();
         runBtn.disabled = true;
-        setStatus(\"Running…\");
+        setRunning(true);
+        const t0 = performance.now();
+        setStatus(\"Running simulation…\");
         try {{
           const body = buildRunRequest();
-          const r = await fetch(\"/api/run\", {{
+          const r = await fetch(`${{API_BASE}}/api/run`, {{
             method: \"POST\",
+            cache: \"no-store\",
             headers: {{ \"Content-Type\": \"application/json\" }},
             body: JSON.stringify(body),
           }});
@@ -1398,30 +1901,52 @@ def _build_html(
             throw new Error(data.error || `HTTP ${{r.status}}`);
           }}
           renderDashboard(data);
-          setStatus(\"Updated.\");
+          // Force a layout pass so canvases resize correctly.
+          setTimeout(() => window.dispatchEvent(new Event(\"resize\")), 0);
+          const dt = (performance.now() - t0) / 1000.0;
+          setStatus(`Updated in ${{dt.toFixed(2)}}s.`);
         }} catch (e) {{
           const msg = (e && e.message) ? e.message : String(e);
           setStatus(`Run failed: ${{msg}}`);
         }} finally {{
           runBtn.disabled = false;
+          setRunning(false);
         }}
       }}
 
       (async () => {{
+        // Try same-origin first; if the dashboard is served via a static server (e.g. :5500),
+        // fallback to the dashboard API server on :8000 with CORS enabled.
+        API_BASE = \"\";
         const ok = await ping();
         if (ok) {{
           runBtn.disabled = false;
           setStatus(\"Server connected. Adjust params then click Run Simulation.\");
         }} else {{
-          runBtn.disabled = true;
-          setStatus(
-            \"Run requires local server. Start: .venv/bin/python scripts/serve_dashboard.py \" +
-              \"and open http://127.0.0.1:8000/\"
-          );
+          API_BASE = \"http://127.0.0.1:8000\";
+          const ok2 = await ping();
+          if (ok2) {{
+            runBtn.disabled = false;
+            setStatus(\"Connected to local API at http://127.0.0.1:8000. Press Run Simulation.\");
+          }} else {{
+            runBtn.disabled = true;
+            setStatus(
+              \"Run requires local server. Start: .venv/bin/python scripts/serve_dashboard.py \" +
+                \"and open http://127.0.0.1:8000/\"
+            );
+          }}
         }}
       }})();
 
       runBtn.addEventListener(\"click\", runSimulation);
+
+      const clampIds = [\"initialNav\", \"levCap\", \"venueCap\", \"dirRisk\"];
+      for (const id of clampIds) {{
+        const el = document.getElementById(id);
+        if (el) {{
+          el.addEventListener(\"blur\", normalizeInputs);
+        }}
+      }}
     }}
 
     document.getElementById("themeBtn").addEventListener("click", () => {{
@@ -1429,6 +1954,7 @@ def _build_html(
     }});
 
     setupRerunControls();
+    setupInfoTips();
     main();
   </script>
 </body>

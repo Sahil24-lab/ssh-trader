@@ -25,6 +25,7 @@ DATA_CSV="${DATA_CSV:-}"
 DATA_CSV_4H="${DATA_CSV_4H:-}"
 TITLE="${TITLE:-${COIN} Hyperliquid End-to-End Report}"
 SKIP_FETCH="${SKIP_FETCH:-0}"
+INITIAL_NAV="${INITIAL_NAV:-10000}"
 
 usage() {
   cat <<EOF
@@ -41,6 +42,7 @@ Options:
   --data-csv <path>       Data CSV path (default: ${DATA_CSV})
   --data-csv-4h <path>    Optional 4H CSV path (default: ${DATA_CSV_4H})
   --out-dir <path>        Output directory (default: ${OUT_DIR})
+  --initial-nav <n>       Backtest starting NAV (default: ${INITIAL_NAV})
   --title <text>          Dashboard title
   --skip-fetch            Skip data fetch, use existing CSV
   -h, --help              Show this help
@@ -59,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --data-csv) DATA_CSV="$2"; shift 2 ;;
     --data-csv-4h) DATA_CSV_4H="$2"; shift 2 ;;
     --out-dir) OUT_DIR="$2"; shift 2 ;;
+    --initial-nav) INITIAL_NAV="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;
     --skip-fetch) SKIP_FETCH="1"; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -161,6 +164,7 @@ echo "[3/6] Running backtest"
   --csv "${DATA_CSV}" \
   --timeframe "${INTERVAL}" \
   --fill-missing \
+  --initial-nav "${INITIAL_NAV}" \
   --output-metrics "${OUT_DIR}/metrics.csv" \
   --output-bars "${OUT_DIR}/bars.csv" \
   --output-trades "${OUT_DIR}/trades.csv"
