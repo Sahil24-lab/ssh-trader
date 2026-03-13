@@ -1,4 +1,19 @@
 repos:
+  - repo: local
+    hooks:
+      - id: gitleaks-staged
+        name: gitleaks staged secrets
+        entry: scripts/run_gitleaks_precommit.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: trivy-repo
+        name: trivy repo scan
+        entry: scripts/run_trivy_fs.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

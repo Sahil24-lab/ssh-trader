@@ -77,6 +77,7 @@ class PortfolioState:
 class TradeEvent:
     ts: datetime
     leg: Literal["spot", "perp"]
+    source: Literal["carry", "directional"]
     qty_delta: float
     price: float
     notional: float
@@ -149,6 +150,7 @@ def _apply_trade(
     state: PortfolioState,
     ts: datetime,
     leg: Literal["spot", "perp"],
+    source: Literal["carry", "directional"],
     qty_delta: float,
     price: float,
     fee_model: FeeModel,
@@ -176,6 +178,7 @@ def _apply_trade(
         TradeEvent(
             ts=ts,
             leg=leg,
+            source=source,
             qty_delta=qty_delta,
             price=price,
             notional=notional,
@@ -390,6 +393,7 @@ def simulate_portfolio(
             state=state,
             ts=ts,
             leg="spot",
+            source="carry",
             qty_delta=spot_delta,
             price=price,
             fee_model=fee_model,
@@ -414,6 +418,7 @@ def simulate_portfolio(
                 TradeEvent(
                     ts=ts,
                     leg="perp",
+                    source="carry",
                     qty_delta=carry_perp_delta,
                     price=price,
                     notional=notional,
@@ -437,6 +442,7 @@ def simulate_portfolio(
                 TradeEvent(
                     ts=ts,
                     leg="perp",
+                    source="directional",
                     qty_delta=dir_perp_delta,
                     price=price,
                     notional=notional,
@@ -682,6 +688,7 @@ def _post_trade_enforce_leverage(
                 state=state,
                 ts=ts,
                 leg="spot",
+                source="carry",
                 qty_delta=spot_delta,
                 price=price,
                 fee_model=fee_model,
@@ -701,6 +708,7 @@ def _post_trade_enforce_leverage(
                 TradeEvent(
                     ts=ts,
                     leg="perp",
+                    source="carry",
                     qty_delta=carry_perp_delta,
                     price=price,
                     notional=notional,
@@ -721,6 +729,7 @@ def _post_trade_enforce_leverage(
                 TradeEvent(
                     ts=ts,
                     leg="perp",
+                    source="directional",
                     qty_delta=dir_perp_delta,
                     price=price,
                     notional=notional,

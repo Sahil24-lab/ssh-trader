@@ -462,7 +462,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         </div>
         <div class="field">
           <label for="dirRisk">
-            Directional risk budget (target vol)
+            Directional overlay risk (target vol)
             <span
               class="info"
               data-tip="Directional sizing knob: target annualized vol for the directional overlay
@@ -470,6 +470,16 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
             >i</span>
           </label>
           <input id="dirRisk" value="0.01" />
+        </div>
+        <div class="field">
+          <label for="carryEnabled">
+            Carry core enabled
+            <span
+              class="info"
+              data-tip="Toggle the carry hedge core (spot+perp). Disable to run directional-only."
+            >i</span>
+          </label>
+          <input id="carryEnabled" type="checkbox" checked />
         </div>
       </div>
       <div class="actions">
@@ -513,7 +523,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="executionLegsCard">
         <div class="section-title">
           <div>Price (Close)</div>
           <div class="hint">Underlying asset price over time</div>
@@ -565,23 +575,23 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           <table>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Regime</th>
-                <th>Order</th>
-                <th>Hypo Fill</th>
-                <th>Slip bps</th>
-                <th>Reason</th>
-              </tr>
-            </thead>
-            <tbody id="shadowTable"></tbody>
-          </table>
-        </div>
+            <th>Time</th>
+            <th>Regime</th>
+            <th>Order</th>
+            <th>Hypo Fill</th>
+            <th>Slip bps</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody id="shadowTable"></tbody>
+      </table>
+    </div>
       </div>
 
       <div class="card">
         <div class="section-title">
-          <div>Backtest Trades</div>
-          <div class="hint">Most recent rows</div>
+          <div>Execution Legs (spot/perp)</div>
+          <div class="hint">Includes carry core + directional overlay legs</div>
         </div>
         <div class="table-wrap">
           <table>
@@ -591,6 +601,13 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
                 <th>
                   Leg
                   <span class="info" data-tip="Instrument leg: spot or perp.">i</span>
+                </th>
+                <th>
+                  Source
+                  <span
+                    class="info"
+                    data-tip="Which layer emitted the leg: carry core or directional overlay."
+                  >i</span>
                 </th>
                 <th>
                   Side
@@ -639,11 +656,11 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
 
       <div class="card">
         <div class="section-title">
-          <div>Trade Inspector</div>
-          <div class="hint">Click a trade row to view TA snapshot</div>
+          <div>Leg Inspector</div>
+          <div class="hint">Click a rebalance leg row to view TA snapshot</div>
         </div>
         <div id="tradeInspect" class="inspect">
-          <div class="muted">Click a trade row to populate this panel.</div>
+          <div class="muted">Click a leg row to populate this panel.</div>
         </div>
         <div class="snapshot">
           <canvas id="snapCanvas"></canvas>
@@ -652,18 +669,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
 
       <div class="card">
         <div class="section-title">
-          <div>Trade Lifecycle</div>
-          <div class="hint">Directional + carry open → close lifecycles</div>
-        </div>
-        <div class="legend">
-          <label class="toggle">
-            <input id="toggleDirectional" type="checkbox" checked />
-            Show directional
-          </label>
-          <label class="toggle">
-            <input id="toggleCarry" type="checkbox" checked />
-            Show carry
-          </label>
+          <div>Directional Overlay Trades (open → close)</div>
+          <div class="hint">Discrete directional trade lifecycles</div>
         </div>
         <div class="table-wrap">
           <table>
@@ -725,7 +732,77 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
                 </th>
               </tr>
             </thead>
-            <tbody id="lifecycleTable"></tbody>
+            <tbody id="lifecycleDirectionalTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="carryLifecycleCard">
+        <div class="section-title">
+          <div>Carry Core Lifecycles (open → close)</div>
+          <div class="hint">Regime-driven carry hedge rebalances</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>
+                  Open
+                  <span class="info" data-tip="Timestamp when carry hedge opens.">i</span>
+                </th>
+                <th>
+                  Close
+                  <span class="info" data-tip="Timestamp when carry hedge closes.">i</span>
+                </th>
+                <th>
+                  Type
+                  <span class="info" data-tip="Lifecycle type: directional or carry.">i</span>
+                </th>
+                <th>
+                  Side
+                  <span class="info" data-tip="Carry side: spot long + perp short.">i</span>
+                </th>
+                <th>
+                  Qty
+                  <span class="info" data-tip="Absolute size of carry hedge.">i</span>
+                </th>
+                <th>
+                  Entry
+                  <span class="info" data-tip="Entry price for the carry hedge.">i</span>
+                </th>
+                <th>
+                  Exit
+                  <span class="info" data-tip="Exit price for the carry hedge.">i</span>
+                </th>
+                <th>
+                  PnL (USD)
+                  <span
+                    class="info"
+                    data-tip="Total carry PnL (price + funding - fees - slippage)."
+                  >i</span>
+                </th>
+                <th>
+                  PnL %
+                  <span
+                    class="info"
+                    data-tip="Lifecycle PnL / (entry price * qty)."
+                  >i</span>
+                </th>
+                <th>
+                  NAV Δ (USD)
+                  <span class="info" data-tip="NAV change from entry to exit.">i</span>
+                </th>
+                <th>
+                  NAV Δ %
+                  <span class="info" data-tip="NAV change percentage from entry to exit.">i</span>
+                </th>
+                <th>
+                  Bars
+                  <span class="info" data-tip="Bars held for this lifecycle.">i</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="lifecycleCarryTable"></tbody>
           </table>
         </div>
       </div>
@@ -859,9 +936,17 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       </div>`;
     }}
 
-    function buildKpis(bars, metrics, shadow, trades) {{
+    function buildKpis(bars, metrics, shadow, trades, lifecycles) {{
       const kpis = [];
       const map = new Map(metrics.map(m => [m.metric, m.value]));
+      const dirRows = lifecycles.filter(r => r.kind === "directional");
+      const carryRows = lifecycles.filter(r => r.kind === "carry");
+      const dirCount = dirRows.length;
+      const carryCount = carryRows.length;
+      const dirWinRate =
+        dirCount > 0
+          ? (dirRows.filter(r => (toNum(r.pnl_total) ?? 0) > 0).length / dirCount)
+          : null;
 
       const initialNavMetric = toNum(map.get("initial_nav"));
       const nav0 = bars.length ? toNum(bars[0].nav) : null;
@@ -893,11 +978,23 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         "Number of backtest bars. Hover charts for per-bar details."
       ));
       kpis.push(metricCard(
-        "Backtest trade events",
+        "Execution legs",
         String(trades.length),
-        "spot/perp events",
-        "Count of trade events emitted by the backtest simulator (spot/perp rebalances). "
-          + "This is not the same as round-trip 'trades'."
+        "spot/perp legs",
+        "Count of rebalance legs emitted by the simulator (spot/perp). "
+          + "These are not directional open/close trades."
+      ));
+      kpis.push(metricCard(
+        "Directional overlay trades",
+        String(dirCount),
+        "open/close lifecycles",
+        "Count of directional trade lifecycles."
+      ));
+      kpis.push(metricCard(
+        "Carry core lifecycles",
+        String(carryCount),
+        "hedge rebalances",
+        "Count of carry hedge lifecycles (regime-driven rebalances)."
       ));
       kpis.push(metricCard(
         "Shadow intended orders",
@@ -926,7 +1023,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         ["sharpe", "Sharpe", "Sharpe ratio using per-bar returns (simplified)."],
         ["sortino", "Sortino", "Sortino ratio using downside deviation (simplified)."],
         ["max_drawdown", "Max DD", "Maximum peak-to-trough drawdown on NAV."],
-        ["win_rate", "Win rate", "Fraction of bars with positive returns."],
+        ["win_rate", "Bar win rate", "Fraction of bars with positive returns."],
         ["exposure_utilization", "Exposure utilization", "Average gross exposure / NAV."],
         [
           "funding_contribution",
@@ -949,6 +1046,14 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           if (k.endsWith("contribution")) shown = raw == null ? "n/a" : fmtPct(raw);
           kpis.push(metricCard(label, shown, "", help));
         }}
+      }}
+      if (dirWinRate != null) {{
+        kpis.push(metricCard(
+          "Directional win rate",
+          fmtPct(dirWinRate),
+          "",
+          "Win rate computed from directional open→close lifecycles."
+        ));
       }}
 
       if (navN != null) {{
@@ -1690,6 +1795,11 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         return `<tr data-ts="${{ts}}" class="${{rowCls}}">
           <td class="mono">${{ts}}</td>
           <td class="mono">${{r.leg || ""}}</td>
+          <td>
+            <span class="pill ${{(r.source || \"\") === \"carry\" ? \"neutral\" : \"on\"}}">
+              ${{r.source || ""}}
+            </span>
+          </td>
           <td><span class="pill ${{sideCls}}">${{side}}</span></td>
           <td class="mono">${{fmt6(r.qty_delta || r.qty || "")}}</td>
           <td class="mono">${{fmt3(r.price || "")}}</td>
@@ -1702,55 +1812,63 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         </tr>`;
       }}).join("");
 
-      const lBody = document.getElementById("lifecycleTable");
-      if (lBody) {{
+      function renderLifecycleRows(rows, tableId, emptyLabel) {{
+        const lBody = document.getElementById(tableId);
+        if (!lBody) return;
         const selectedKey = window.__selectedLifecycleKey || "";
-        const showCarry = document.getElementById("toggleCarry")?.checked ?? true;
-        const showDirectional = document.getElementById("toggleDirectional")?.checked ?? true;
-        const lRows = lifecycles.filter(r => (
-          (r.kind === "carry" && showCarry) ||
-          (r.kind === "directional" && showDirectional)
-        )).slice(-250);
-        if (lRows.length === 0) {{
+        if (rows.length === 0) {{
           lBody.innerHTML = (
             `<tr>` +
-            `<td class="mono" colspan="12">No lifecycle trades in this window.</td>` +
+            `<td class="mono" colspan="12">${{emptyLabel}}</td>` +
             `</tr>`
           );
-        }} else {{
-          lBody.innerHTML = lRows.map(r => {{
-            const key = `${{r.open_ts}}|${{r.close_ts}}`;
-            const rowCls = key === selectedKey ? "row-selected" : "";
-            const qty = toNum(r.qty);
-            const entry = toNum(r.entry_price);
-            const pnl = toNum(r.pnl_total);
-            const denom = (qty != null && entry != null) ? (qty * entry) : null;
-            const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
-            const navDeltaUsd = toNum(r.nav_delta);
-            const navDeltaPct = toNum(r.nav_delta_pct);
-            const pnlCls = (pnl != null && pnl < 0) ? "neg" : "pos";
-            const pnlPctCls = (pnlPct != null && pnlPct < 0) ? "neg" : "pos";
-            const navCls = (navDeltaUsd != null && navDeltaUsd < 0) ? "neg" : "pos";
-            const navPctCls = (navDeltaPct != null && navDeltaPct < 0) ? "neg" : "pos";
-            return `<tr data-key="${{key}}" class="${{rowCls}}">
-              <td class="mono">${{r.open_ts || ""}}</td>
-              <td class="mono">${{r.close_ts || ""}}</td>
-              <td>${{r.kind || ""}}</td>
-              <td>${{r.side || ""}}</td>
-              <td class="mono">${{fmt6(r.qty || "")}}</td>
-              <td class="mono">${{fmt3(r.entry_price || "")}}</td>
-              <td class="mono">${{fmt3(r.exit_price || "")}}</td>
-              <td class="mono ${{pnlCls}}">${{fmt2(r.pnl_total || "")}}</td>
-              <td class="mono ${{pnlPctCls}}">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
-              <td class="mono ${{navCls}}">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
-              <td class="mono ${{navPctCls}}">
-                ${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}
-              </td>
-              <td class="mono">${{r.bars_held || ""}}</td>
-            </tr>`;
-          }}).join("");
+          return;
         }}
+        lBody.innerHTML = rows.map(r => {{
+          const key = `${{r.open_ts}}|${{r.close_ts}}`;
+          const rowCls = key === selectedKey ? "row-selected" : "";
+          const qty = toNum(r.qty);
+          const entry = toNum(r.entry_price);
+          const pnl = toNum(r.pnl_total);
+          const denom = (qty != null && entry != null) ? (qty * entry) : null;
+          const pnlPct = (denom != null && denom !== 0 && pnl != null) ? (pnl / denom) : null;
+          const navDeltaUsd = toNum(r.nav_delta);
+          const navDeltaPct = toNum(r.nav_delta_pct);
+          const pnlCls = (pnl != null && pnl < 0) ? "neg" : "pos";
+          const pnlPctCls = (pnlPct != null && pnlPct < 0) ? "neg" : "pos";
+          const navCls = (navDeltaUsd != null && navDeltaUsd < 0) ? "neg" : "pos";
+          const navPctCls = (navDeltaPct != null && navDeltaPct < 0) ? "neg" : "pos";
+          return `<tr data-key="${{key}}" class="${{rowCls}}">
+            <td class="mono">${{r.open_ts || ""}}</td>
+            <td class="mono">${{r.close_ts || ""}}</td>
+            <td>${{r.kind || ""}}</td>
+            <td>${{r.side || ""}}</td>
+            <td class="mono">${{fmt6(r.qty || "")}}</td>
+            <td class="mono">${{fmt3(r.entry_price || "")}}</td>
+            <td class="mono">${{fmt3(r.exit_price || "")}}</td>
+            <td class="mono ${{pnlCls}}">${{fmt2(r.pnl_total || "")}}</td>
+            <td class="mono ${{pnlPctCls}}">${{pnlPct == null ? "" : fmtPct(pnlPct)}}</td>
+            <td class="mono ${{navCls}}">${{navDeltaUsd == null ? "" : fmt2(navDeltaUsd)}}</td>
+            <td class="mono ${{navPctCls}}">
+              ${{navDeltaPct == null ? "" : fmtPct(navDeltaPct)}}
+            </td>
+            <td class="mono">${{r.bars_held || ""}}</td>
+          </tr>`;
+        }}).join("");
       }}
+
+      const directionalRows = lifecycles.filter(r => r.kind === "directional").slice(-250);
+      const carryRows = lifecycles.filter(r => r.kind === "carry").slice(-250);
+      renderLifecycleRows(
+        directionalRows,
+        "lifecycleDirectionalTable",
+        "No directional trades in this window."
+      );
+      renderLifecycleRows(
+        carryRows,
+        "lifecycleCarryTable",
+        "No carry lifecycles in this window."
+      );
     }}
 
     function renderTradeInspector(
@@ -2062,7 +2180,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       const lifecycles = payload.lifecycle || [];
       const gen = payload.generated_at_utc || "";
 
-      const kpis = buildKpis(bars, metrics, shadow, trades);
+      const kpis = buildKpis(bars, metrics, shadow, trades, lifecycles);
       document.getElementById("kpis").innerHTML = kpis.join("");
 
       const start = bars.length ? bars[0].timestamp : "";
@@ -2397,26 +2515,21 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
         }});
         tBody.__wired = true;
       }}
-      const lBody = document.getElementById("lifecycleTable");
-      if (lBody && !lBody.__wired) {{
-        lBody.addEventListener("click", (e) => {{
-          const tr = e.target.closest("tr[data-key]");
-          if (!tr) return;
-          window.__selectedLifecycleKey = tr.getAttribute("data-key") || "";
-          window.__selectedTradeTs = "";
-          renderDashboard(LAST_PAYLOAD);
-        }});
-        lBody.__wired = true;
-      }}
-      const toggleCarry = document.getElementById("toggleCarry");
-      const toggleDirectional = document.getElementById("toggleDirectional");
-      if (toggleCarry && !toggleCarry.__wired) {{
-        toggleCarry.addEventListener("change", () => renderDashboard(LAST_PAYLOAD));
-        toggleCarry.__wired = true;
-      }}
-      if (toggleDirectional && !toggleDirectional.__wired) {{
-        toggleDirectional.addEventListener("change", () => renderDashboard(LAST_PAYLOAD));
-        toggleDirectional.__wired = true;
+      const lTables = [
+        document.getElementById("lifecycleDirectionalTable"),
+        document.getElementById("lifecycleCarryTable"),
+      ];
+      for (const lBody of lTables) {{
+        if (lBody && !lBody.__wired) {{
+          lBody.addEventListener("click", (e) => {{
+            const tr = e.target.closest("tr[data-key]");
+            if (!tr) return;
+            window.__selectedLifecycleKey = tr.getAttribute("data-key") || "";
+            window.__selectedTradeTs = "";
+            renderDashboard(LAST_PAYLOAD);
+          }});
+          lBody.__wired = true;
+        }}
       }}
       return;
 
@@ -2567,6 +2680,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           \"maxDd\",
           \"liqBuf\",
           \"dirRisk\",
+          \"carryEnabled\",
         ];
         for (const id of ids) {{
           const el = document.getElementById(id);
@@ -2586,6 +2700,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
       function buildRunRequest() {{
         const levRaw = _readInputNum(\"levCap\", 1.5);
         const venueRaw = _readInputNum(\"venueCap\", 0.30);
+        const carryEnabled = !!document.getElementById(\"carryEnabled\")?.checked;
         return {{
           csv: _readInputStr(\"csvPath\", \"data/hyperliquid_btc_1h.csv\"),
           timeframe: _readInputStr(\"timeframe\", \"1h\"),
@@ -2597,6 +2712,7 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           max_drawdown: clamp(_readInputNum(\"maxDd\", 0.2), 0, 1),
           liquidation_buffer: clamp(_readInputNum(\"liqBuf\", 0.1), 0, 1),
           target_dir_vol: clamp(_readInputNum(\"dirRisk\", 0.01), 0, 10),
+          carry_enabled: carryEnabled,
         }};
       }}
 
@@ -2640,7 +2756,8 @@ Proxy for liquidation risk; explicit liquidation price modeling is not implement
           // Force a layout pass so canvases resize correctly.
           setTimeout(() => window.dispatchEvent(new Event(\"resize\")), 0);
           const dt = (performance.now() - t0) / 1000.0;
-          setStatus(`Updated in ${{dt.toFixed(2)}}s.`);
+          const carryTag = body.carry_enabled ? \"carry=on\" : \"carry=off\";
+          setStatus(`Updated in ${{dt.toFixed(2)}}s (${{carryTag}}).`);
         }} catch (e) {{
           const msg = (e && e.message) ? e.message : String(e);
           setStatus(`Run failed: ${{msg}}`);

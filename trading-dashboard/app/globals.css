@@ -1,0 +1,13 @@
+/* 4️⃣ Global CSS (app/globals.css) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import Google fonts */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+
+/* Basic page styling */
+html,
+body {
+  @apply h-full bg-graphite text-slate-100 font-body;
+}

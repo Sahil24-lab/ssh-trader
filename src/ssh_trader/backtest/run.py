@@ -270,12 +270,13 @@ def main(argv: list[str] | None = None) -> int:
         args.output_trades.parent.mkdir(parents=True, exist_ok=True)
         with args.output_trades.open("w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["ts", "leg", "qty_delta", "price", "notional", "fee", "slippage"])
+            w.writerow(["ts", "leg", "source", "qty_delta", "price", "notional", "fee", "slippage"])
             for t in result.trades:
                 w.writerow(
                     [
                         t.ts.isoformat().replace("+00:00", "Z"),
                         t.leg,
+                        t.source,
                         t.qty_delta,
                         t.price,
                         t.notional,

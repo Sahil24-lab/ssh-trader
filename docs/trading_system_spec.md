@@ -1,15 +1,24 @@
 # Context: Hyperliquid TA Bot (1H/4H) — System Spec
 
+## TL;DR
+
+- **Default mode** = Directional TA trades (clear open → close lifecycle).
+- **Optional mode** = Carry hedge core (spot + perp rebalances).
+- **Trade tables** should separate **directional trades** vs **carry rebalances**.
+- **Regimes** (Bear/Neutral/Bull) determine which strategy mix is active.
+
 ## Goal
 
-Build a deterministic, testable trading system (not an LLM-driven vibes bot) that:
+Build a deterministic, testable trading system that:
 
 - Ingests Hyperliquid market data (OHLCV candles; optional orderbook/funding/OI).
-- Detects higher-timeframe TA setups (1H entries with 4H bias).
+- Supports **directional TA trades** (1H entries with 4H bias).
+- Can optionally enable a **carry hedge core** (spot + perp) as a safety layer.
 - Backtests and validates statistically (expectancy in R, drawdown, regime dependence).
-- Runs live in paper/sim mode first, then small-cap deployment ($1K) with strict risk controls.
+- Runs live in paper/sim mode first, then small-cap deployment with strict risk controls.
 
-Core premise: convert discretionary TA (S/R + compression + candlestick trigger + volume confirmation + 2:1 R:R) into quantifiable rules that can be coded and validated.
+Core premise: convert discretionary TA (S/R + compression + candlestick trigger + volume confirmation + 2:1 R:R)
+into quantifiable rules that can be coded, tested, and explained.
 
 ---
 
@@ -45,6 +54,28 @@ Start with majors only:
 
 - BTC, ETH (optionally SOL later)
   Avoid low-liquidity alts initially (they break 2R systems via slippage/whipsaw).
+
+---
+
+## Strategy Layers (Clarified)
+
+### 1) Directional Overlay (Primary Strategy)
+
+This is the **default** strategy. It opens and closes discrete trades based on TA:
+levels → compression → trigger → entry/exit. This is what most “trade tables” should represent.
+
+### 2) Carry Core (Optional Hedge Layer)
+
+An **optional** spot+perp hedged position that can be enabled later.
+This layer is not required for directional testing, but it can be switched on to reduce downside
+or to test hedged carry performance in specific regimes. When enabled, it **rebalances** and
+generates paired legs (spot + perp) rather than classic entry/exit trades.
+
+**Key distinction**
+- **Directional trades** → single lifecycle (open → close).
+- **Carry hedges** → paired leg rebalances (spot + perp).
+
+This separation avoids confusing trade logs and makes performance analysis clearer.
 
 ---
 
@@ -242,6 +273,24 @@ Prefer:
 
 ---
 
+## Regimes & Strategy Switching (Forward-Looking)
+
+Longer term, classify market regimes:
+
+- **Bear**
+- **Neutral**
+- **Bull**
+
+Then **switch strategy mix** by regime:
+
+- Directional overlay on/off based on confluence + regime
+- Carry core enabled/disabled to control downside
+- Tighter filters in Bear, more permissive in Bull
+
+This is the mechanism to **maximize alpha in strong cycles** while **minimizing downside** in weak cycles.
+
+---
+
 ## Build Plan (Phased)
 
 ### Phase 1: Data Collection (Offline)
@@ -339,6 +388,26 @@ An agent (NanoClaw) can be used later for:
   - `ingest/`, `features/`, `strategy/`, `backtest/`, `paper/`, `exec/`, `report/`
 - Add reason codes everywhere (debuggability):
   - `NO_LEVEL`, `NO_COMPRESSION`, `TRIGGER_FAIL`, `BIAS_FAIL`, `CS_FAIL`, etc.
+
+---
+
+## Reporting & Trade Tables (Clarified)
+
+To avoid confusion in dashboards:
+
+1. **Directional trades table**
+   - Shows entry/exit trades (open → close).
+   - Each row is a discrete TA trade.
+
+2. **Carry hedge rebalances table (optional)**
+   - Shows paired spot+perp legs.
+   - These are **rebalances**, not trade entries/exits.
+
+3. **Lifecycle reporting**
+   - Directional lifecycle: open, close, PnL, R-metrics.
+   - Carry lifecycle: regime-change driven rebalances with NAV deltas.
+
+This keeps analysis clean and makes it clear which strategy produced which results.
 
 ---
 

@@ -19,7 +19,7 @@ from ssh_trader.backtest.simulator import (
 from ssh_trader.data.clean import fill_missing_intervals, normalize_and_sort
 from ssh_trader.data.io_csv import load_ohlcv_csv
 from ssh_trader.data.model import parse_timeframe
-from ssh_trader.guidance.policy import GuidancePolicy, GuidancePolicyConfig
+from ssh_trader.guidance.policy import AllocationBand, GuidancePolicy, GuidancePolicyConfig
 from ssh_trader.nav.compression import CompressionConfig
 from ssh_trader.nav.regime import Regime, RegimeConfig
 from ssh_trader.risk.governor import RiskConfig, RiskGovernor
@@ -159,6 +159,7 @@ def _serialize_trades(result: object) -> list[dict[str, str]]:
             {
                 "ts": t.ts.isoformat().replace("+00:00", "Z"),
                 "leg": str(t.leg),
+                "source": str(t.source),
                 "qty_delta": str(t.qty_delta),
                 "price": str(t.price),
                 "notional": str(t.notional),
@@ -230,19 +231,30 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
     max_drawdown = _as_float(body, "max_drawdown", 0.20)
     liq_buf = _as_float(body, "liquidation_buffer", 0.10)
     target_dir_vol = _as_float(body, "target_dir_vol", 0.20)
+    carry_enabled = _as_bool(body, "carry_enabled", True)
 
     fee_bps = _as_float(body, "taker_fee_bps", 5.0)
     slip_bps = _as_float(body, "slippage_bps_at_1x_nav", 10.0)
 
     frame = _load_frame(csv_path=csv_path, timeframe=timeframe, fill_missing=fill_missing)
 
-    guidance = GuidancePolicy(GuidancePolicyConfig(aggressiveness=aggressiveness))
+    if carry_enabled:
+        guidance_cfg = GuidancePolicyConfig(aggressiveness=aggressiveness)
+    else:
+        guidance_cfg = GuidancePolicyConfig(
+            aggressiveness=aggressiveness,
+            risk_off_carry=AllocationBand(0.0, 0.0),
+            neutral_carry=AllocationBand(0.0, 0.0),
+            risk_on_carry=AllocationBand(0.0, 0.0),
+        )
+    guidance = GuidancePolicy(guidance_cfg)
+    kill_action = "carry_only" if carry_enabled else "flat"
     risk = RiskGovernor(
         RiskConfig(
             leverage_cap=leverage_cap,
             venue_cap_frac=venue_cap_frac,
             max_drawdown=max_drawdown,
-            kill_switch_action="carry_only",
+            kill_switch_action=kill_action,
         )
     )
     nav_cfg = RegimeConfig()
@@ -280,6 +292,7 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
         "metrics": metrics_rows,
         "shadow": shadow_rows,
         "ta_features": cfg.ta_features,
+        "meta": {"carry_enabled": carry_enabled},
     }
 
 

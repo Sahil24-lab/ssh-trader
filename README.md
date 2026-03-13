@@ -23,7 +23,7 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
 pip install -e '.[dev]'
-pre-commit install
+pre-commit install --hook-type pre-commit --hook-type pre-push
 ```
 
 If you’re in a restricted/offline environment where pip can’t download build dependencies, use:
@@ -62,6 +62,43 @@ To run the same checks via pre-commit (matches `.pre-commit-config.yaml`):
 
 ```bash
 pre-commit run --all-files
+```
+
+To run the heavier pre-push security scan manually:
+
+```bash
+pre-commit run --hook-stage pre-push --all-files
+```
+
+## Security tooling
+
+Recommended local installs for this repo:
+
+```bash
+brew install semgrep trivy gitleaks nmap testssl nikto lynis
+```
+
+What is wired into git hooks here:
+
+- `gitleaks` runs on `pre-commit` to block staged secrets before commit.
+- `trivy fs` runs on `pre-push` to catch high/critical dependency and IaC issues before code leaves the machine.
+- Existing `ruff`, `black`, `mypy`, and YAML hygiene checks stay in `pre-commit`.
+
+What stays manual or target-specific:
+
+- `semgrep scan --config auto` is useful for code review, but it is not enforced in hooks here because Semgrep has environment-specific runtime issues on some hosts and would make commits unreliable.
+- `nmap`, `testssl.sh`, `nikto`, `OWASP ZAP`, and `lynis` are for deployed targets or host audits, not repository commit hooks.
+
+Suggested ad hoc runs:
+
+```bash
+gitleaks detect --source . --redact
+semgrep scan --config auto
+trivy fs .
+testssl.sh yourdomain.com
+nmap -sV -Pn yourdomain.com
+nikto -h https://yourdomain.com
+lynis audit system
 ```
 
 ## Navigation replay (no trading)
