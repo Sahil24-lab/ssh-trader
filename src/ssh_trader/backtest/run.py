@@ -2,29 +2,26 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
+from ssh_trader.config.runtime import (
+    build_compression_config,
+    build_fee_model,
+    build_guidance_policy,
+    build_nav_config,
+    build_risk_governor,
+    build_simulator_config,
+    build_slippage_model,
+    load_json_config,
+)
 from ssh_trader.data.clean import fill_missing_intervals, normalize_and_sort
 from ssh_trader.data.io_csv import load_ohlcv_csv
 from ssh_trader.data.model import parse_timeframe
-from ssh_trader.guidance.policy import GuidancePolicy, GuidancePolicyConfig
-from ssh_trader.nav.compression import CompressionConfig
 from ssh_trader.nav.regime import Regime, RegimeConfig
-from ssh_trader.risk.governor import RiskConfig, RiskGovernor
 
 from .metrics import compute_metrics
-from .simulator import FeeModel, SimulatorConfig, SlippageModel, simulate_portfolio
-
-
-def _load_config(path: Path | None) -> dict[str, object]:
-    if path is None:
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("config must be a JSON object")
-    return cast(dict[str, object], data)
+from .simulator import simulate_portfolio
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,11 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    cfg = _load_config(args.config)
+    cfg = load_json_config(args.config)
 
     data_cfg_obj = cfg.get("data", {})
-    data_cfg: dict[str, Any] = (
-        cast(dict[str, Any], data_cfg_obj) if isinstance(data_cfg_obj, dict) else {}
+    data_cfg: dict[str, object] = (
+        cast(dict[str, object], data_cfg_obj) if isinstance(data_cfg_obj, dict) else {}
     )
 
     timeframe = args.timeframe or (
@@ -111,84 +108,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         frame, _ = fill_missing_intervals(frame, tf_seconds)
 
-    guidance_cfg_obj = cfg.get("guidance", {})
-    guidance_cfg: dict[str, Any] = (
-        cast(dict[str, Any], guidance_cfg_obj) if isinstance(guidance_cfg_obj, dict) else {}
-    )
-    guidance = GuidancePolicy(
-        GuidancePolicyConfig(aggressiveness=float(guidance_cfg.get("aggressiveness", 0.5)))
-    )
-
-    risk_cfg_obj = cfg.get("risk", {})
-    risk_cfg: dict[str, Any] = (
-        cast(dict[str, Any], risk_cfg_obj) if isinstance(risk_cfg_obj, dict) else {}
-    )
-
-    kill_action_raw_obj = risk_cfg.get("kill_switch_action", "carry_only")
-    if not isinstance(kill_action_raw_obj, str):
-        raise ValueError("kill_switch_action must be a string")
-    if kill_action_raw_obj not in ("carry_only", "flat"):
-        raise ValueError("kill_switch_action must be 'carry_only' or 'flat'")
-    kill_action: Literal["carry_only", "flat"] = cast(
-        Literal["carry_only", "flat"], kill_action_raw_obj
-    )
-
-    risk = RiskGovernor(
-        RiskConfig(
-            leverage_cap=float(risk_cfg.get("leverage_cap", 1.5)),
-            venue_cap_frac=float(risk_cfg.get("venue_cap_frac", 0.30)),
-            max_drawdown=float(risk_cfg.get("max_drawdown", 0.20)),
-            kill_switch_action=kill_action,
-            vol_spike_vol_pct=float(risk_cfg.get("vol_spike_vol_pct", 0.90)),
-        )
-    )
-
-    nav_cfg_obj = cfg.get("nav", {})
-    nav_cfg: dict[str, Any] = (
-        cast(dict[str, Any], nav_cfg_obj) if isinstance(nav_cfg_obj, dict) else {}
-    )
-    nav_config = RegimeConfig(
-        long_ma_window=int(nav_cfg.get("long_ma_window", 200)),
-        rv_window=int(nav_cfg.get("rv_window", 20)),
-        vol_percentile_window=int(nav_cfg.get("vol_percentile_window", 252)),
-        confirm_bars=int(nav_cfg.get("confirm_bars", 3)),
-    )
-
-    comp_cfg_obj = cfg.get("compression", {})
-    comp_cfg: dict[str, Any] = (
-        cast(dict[str, Any], comp_cfg_obj) if isinstance(comp_cfg_obj, dict) else {}
-    )
-    compression_config = CompressionConfig(
-        atr_window=int(comp_cfg.get("atr_window", 14)),
-        contraction_lookback=int(comp_cfg.get("contraction_lookback", 50)),
-        vol_pct_window=int(comp_cfg.get("vol_pct_window", 252)),
-        range_window=int(comp_cfg.get("range_window", 50)),
-    )
-
-    sim_cfg_obj = cfg.get("sim", {})
-    sim_cfg: dict[str, Any] = (
-        cast(dict[str, Any], sim_cfg_obj) if isinstance(sim_cfg_obj, dict) else {}
-    )
-    sim_config = SimulatorConfig(
-        initial_nav=float(sim_cfg.get("initial_nav", 1_000_000.0)),
-        carry_funding_freq_hours=int(sim_cfg.get("carry_funding_freq_hours", 8)),
-        liquidation_buffer=float(sim_cfg.get("liquidation_buffer", 0.10)),
-        target_dir_vol=float(sim_cfg.get("target_dir_vol", 0.20)),
-    )
-    if args.initial_nav is not None:
-        sim_config = SimulatorConfig(
-            initial_nav=float(args.initial_nav),
-            carry_funding_freq_hours=sim_config.carry_funding_freq_hours,
-            liquidation_buffer=sim_config.liquidation_buffer,
-            target_dir_vol=sim_config.target_dir_vol,
-        )
-
-    fees_obj = cfg.get("fees", {})
-    fees: dict[str, Any] = cast(dict[str, Any], fees_obj) if isinstance(fees_obj, dict) else {}
-    fee_model = FeeModel(taker_fee_bps=float(fees.get("taker_fee_bps", 5.0)))
-    slippage_model = SlippageModel(
-        slippage_bps_at_1x_nav=float(fees.get("slippage_bps_at_1x_nav", 10.0))
-    )
+    guidance = build_guidance_policy(cfg)
+    risk = build_risk_governor(cfg, default_kill_switch_action="carry_only")
+    nav_config = build_nav_config(cfg)
+    compression_config = build_compression_config(cfg)
+    sim_config = build_simulator_config(cfg, initial_nav_override=args.initial_nav)
+    fee_model = build_fee_model(cfg)
+    slippage_model = build_slippage_model(cfg)
 
     result = simulate_portfolio(
         frame=frame,
@@ -308,6 +234,7 @@ def main(argv: list[str] | None = None) -> int:
                     "pnl_slippage",
                     "pnl_total",
                     "bars_held",
+                    "exit_reason",
                 ]
             )
             for lc in result.lifecycles:
@@ -330,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
                         lc.pnl_slippage,
                         lc.pnl_total,
                         lc.bars_held,
+                        lc.exit_reason,
                     ]
                 )
 

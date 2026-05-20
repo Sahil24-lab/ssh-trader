@@ -9,20 +9,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, cast
 
-from ssh_trader.backtest.metrics import compute_metrics
-from ssh_trader.backtest.simulator import (
-    FeeModel,
-    SimulatorConfig,
-    SlippageModel,
-    simulate_portfolio,
+from ssh_trader.config.runtime import (
+    build_compression_config,
+    build_control_config,
+    build_fee_model,
+    build_guidance_policy,
+    build_hyperliquid_stub_config,
+    build_nav_config,
+    build_risk_governor,
+    build_simulator_config,
+    build_slippage_model,
 )
+from ssh_trader.backtest.metrics import compute_metrics
+from ssh_trader.backtest.simulator import simulate_portfolio
+from ssh_trader.live.shadow_runner import ShadowRunnerConfig, run_shadow
 from ssh_trader.data.clean import fill_missing_intervals, normalize_and_sort
 from ssh_trader.data.io_csv import load_ohlcv_csv
 from ssh_trader.data.model import parse_timeframe
-from ssh_trader.guidance.policy import AllocationBand, GuidancePolicy, GuidancePolicyConfig
-from ssh_trader.nav.compression import CompressionConfig
-from ssh_trader.nav.regime import Regime, RegimeConfig
-from ssh_trader.risk.governor import RiskConfig, RiskGovernor
+from ssh_trader.guidance.policy import AllocationBand, GuidancePolicyConfig
+from ssh_trader.nav.regime import Regime
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +198,7 @@ def _serialize_lifecycles(result: object) -> list[dict[str, str]]:
                 "pnl_slippage": str(t.pnl_slippage),
                 "pnl_total": str(t.pnl_total),
                 "bars_held": str(t.bars_held),
+                "exit_reason": str(t.exit_reason),
             }
         )
     return out
@@ -235,37 +241,80 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
 
     fee_bps = _as_float(body, "taker_fee_bps", 5.0)
     slip_bps = _as_float(body, "slippage_bps_at_1x_nav", 10.0)
+    order_latency_bars = int(_as_float(body, "order_latency_bars", 1.0))
+    fill_range_position = _as_float(body, "fill_range_position", 0.75)
+    fill_time_fraction = _as_float(body, "fill_time_fraction", 0.25)
+    dir_stop = _as_float(body, "directional_stop_loss_pct", 0.02)
+    dir_take = _as_float(body, "directional_take_profit_pct", 0.04)
+    dir_max_hold = int(_as_float(body, "directional_max_hold_bars", 24.0))
+    carry_rebalance = _as_float(body, "carry_rebalance_threshold_pct", 0.01)
 
     frame = _load_frame(csv_path=csv_path, timeframe=timeframe, fill_missing=fill_missing)
 
+    runtime_cfg: dict[str, object] = {
+        "guidance": {"aggressiveness": aggressiveness},
+        "risk": {
+            "leverage_cap": leverage_cap,
+            "venue_cap_frac": venue_cap_frac,
+            "max_drawdown": max_drawdown,
+            "kill_switch_action": "carry_only" if carry_enabled else "flat",
+        },
+        "sim": {
+            "initial_nav": initial_nav,
+            "liquidation_buffer": liq_buf,
+            "target_dir_vol": target_dir_vol,
+            "order_latency_bars": order_latency_bars,
+            "fill_range_position": fill_range_position,
+            "fill_time_fraction": fill_time_fraction,
+            "directional_stop_loss_pct": dir_stop,
+            "directional_take_profit_pct": dir_take,
+            "directional_max_hold_bars": dir_max_hold,
+            "carry_rebalance_threshold_pct": carry_rebalance,
+        },
+        "fees": {
+            "taker_fee_bps": fee_bps,
+            "slippage_bps_at_1x_nav": slip_bps,
+        },
+        "control": {
+            "symbol": _as_str(body, "symbol", "BTC-PERP"),
+            "rebalance_interval_bars": int(_as_float(body, "rebalance_interval_bars", 1)),
+            "max_slippage_bps": _as_float(body, "max_order_slippage_bps", 30.0),
+            "min_order_qty": _as_float(body, "min_order_qty", 0.0),
+            "oracle_divergence_bps": _as_float(body, "oracle_divergence_bps", 50.0),
+        },
+        "live": {
+            "symbol": _as_str(body, "symbol", "BTC-PERP"),
+            "initial_equity": initial_nav,
+            "slippage_bps_at_1x_notional": _as_float(
+                body, "live_slippage_bps_at_1x_notional", 10.0
+            ),
+            "max_fill_ratio": _as_float(body, "max_fill_ratio", 1.0),
+        },
+        "shadow": {
+            "symbol": _as_str(body, "symbol", "BTC-PERP"),
+            "target_directional_vol": target_dir_vol,
+            "min_realized_vol": _as_float(body, "min_realized_vol", 1e-6),
+            "vol_spike_threshold": _as_float(body, "vol_spike_threshold", 0.90),
+        },
+    }
     if carry_enabled:
-        guidance_cfg = GuidancePolicyConfig(aggressiveness=aggressiveness)
+        guidance = build_guidance_policy(runtime_cfg)
     else:
-        guidance_cfg = GuidancePolicyConfig(
-            aggressiveness=aggressiveness,
-            risk_off_carry=AllocationBand(0.0, 0.0),
-            neutral_carry=AllocationBand(0.0, 0.0),
-            risk_on_carry=AllocationBand(0.0, 0.0),
+        guidance = build_guidance_policy(runtime_cfg)
+        guidance = type(guidance)(
+            GuidancePolicyConfig(
+                aggressiveness=aggressiveness,
+                risk_off_carry=AllocationBand(0.0, 0.0),
+                neutral_carry=AllocationBand(0.0, 0.0),
+                risk_on_carry=AllocationBand(0.0, 0.0),
+            )
         )
-    guidance = GuidancePolicy(guidance_cfg)
-    kill_action = "carry_only" if carry_enabled else "flat"
-    risk = RiskGovernor(
-        RiskConfig(
-            leverage_cap=leverage_cap,
-            venue_cap_frac=venue_cap_frac,
-            max_drawdown=max_drawdown,
-            kill_switch_action=kill_action,
-        )
-    )
-    nav_cfg = RegimeConfig()
-    comp_cfg = CompressionConfig()
-    sim_cfg = SimulatorConfig(
-        initial_nav=initial_nav,
-        liquidation_buffer=liq_buf,
-        target_dir_vol=target_dir_vol,
-    )
-    fee_model = FeeModel(taker_fee_bps=fee_bps)
-    slippage_model = SlippageModel(slippage_bps_at_1x_nav=slip_bps)
+    risk = build_risk_governor(runtime_cfg, default_kill_switch_action="carry_only")
+    nav_cfg = build_nav_config(runtime_cfg)
+    comp_cfg = build_compression_config(runtime_cfg)
+    sim_cfg = build_simulator_config(runtime_cfg)
+    fee_model = build_fee_model(runtime_cfg)
+    slippage_model = build_slippage_model(runtime_cfg)
 
     result = simulate_portfolio(
         frame=cast(Any, frame),
@@ -281,9 +330,29 @@ def _run_backtest(cfg: ServeConfig, body: dict[str, Any]) -> dict[str, object]:
     metrics_rows = _serialize_metrics(metrics)
     metrics_rows.insert(0, {"metric": "initial_nav", "value": str(initial_nav)})
 
-    shadow_rows: list[dict[str, str]] = []
-    if cfg.shadow_path is not None:
-        shadow_rows = _read_shadow_csv(cfg.shadow_path)
+    shadow_cfg = runtime_cfg["shadow"]
+    shadow_runner_cfg = ShadowRunnerConfig(
+        symbol=str(cast(dict[str, object], shadow_cfg).get("symbol", "BTC-PERP")),
+        target_directional_vol=float(
+            cast(dict[str, object], shadow_cfg).get("target_directional_vol", 0.20)
+        ),
+        min_realized_vol=float(cast(dict[str, object], shadow_cfg).get("min_realized_vol", 1e-6)),
+        vol_spike_threshold=float(
+            cast(dict[str, object], shadow_cfg).get("vol_spike_threshold", 0.90)
+        ),
+    )
+    shadow_rows = run_shadow(
+        cast(Any, frame),
+        config=shadow_runner_cfg,
+        nav_config=nav_cfg,
+        compression_config=comp_cfg,
+        guidance=guidance,
+        risk=risk,
+        control_config=build_control_config(runtime_cfg, default_symbol=shadow_runner_cfg.symbol),
+        venue_config=build_hyperliquid_stub_config(
+            runtime_cfg, default_symbol=shadow_runner_cfg.symbol, default_equity=initial_nav
+        ),
+    )
 
     return {
         "bars": _serialize_bars(result),

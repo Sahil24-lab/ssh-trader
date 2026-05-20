@@ -79,3 +79,16 @@ class GuidancePolicy:
         carry = max(0.0, min(1.0, carry))
         directional = max(0.0, min(1.0, directional))
         return TargetAllocations(carry_frac=carry, directional_frac=directional)
+
+
+def allocation_band_from_config(value: object, default: AllocationBand) -> AllocationBand:
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return AllocationBand(
+            min_frac=float(value.get("min", value.get("min_frac", default.min_frac))),
+            max_frac=float(value.get("max", value.get("max_frac", default.max_frac))),
+        )
+    if isinstance(value, (list, tuple)) and len(value) == 2:
+        return AllocationBand(min_frac=float(value[0]), max_frac=float(value[1]))
+    raise ValueError("allocation band must be [min, max] or an object with min/max")

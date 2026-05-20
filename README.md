@@ -1,181 +1,147 @@
 # ssh-trader
 
-`ssh-trader` is a Python codebase for a regime-adaptive crypto trading system organized around a
-GNC (Navigation, Guidance, Control) architecture with explicit risk and execution layers.
+`ssh-trader` is a regime-adaptive crypto trading system built with a GNC
+(Navigation, Guidance, Control) architecture plus explicit risk, backtest, and
+live/shadow execution layers.
 
-## GNC architecture
+## 5-minute quickstart
 
-- **Navigation (`nav/`)**: Builds market state estimates and regime labels (e.g., `RISK_ON`,
-  `NEUTRAL`, `RISK_OFF`).
-- **Guidance (`guidance/`)**: Converts state estimates into target exposures and portfolio policy.
-- **Control (`control/`)**: Translates targets into executable orders and applies venue routing
-  protections.
-- **Risk (`risk/`)**: Enforces limits (leverage, concentration, drawdown kill-switches), sizing,
-  and circuit breakers.
-- **Backtest (`backtest/`)**: Event-driven simulation stack including fee, slippage, and funding
-  assumptions.
-- **Live (`live/`)**: Broker/venue adapters and paper/shadow execution paths.
+This is the fastest clean path to get from clone -> run -> dashboard.
 
-## Development setup
+### 1) Set up environment
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
 pip install -e '.[dev]'
-pre-commit install --hook-type pre-commit --hook-type pre-push
 ```
 
-If you’re in a restricted/offline environment where pip can’t download build dependencies, use:
+If you are in a restricted/offline environment:
 
 ```bash
 pip install -e '.[dev]' --no-build-isolation
 ```
 
-## Quick checks
-
-```bash
-pytest -q
-ruff check .
-python -m black --check .
-mypy src tests
-```
-
-## One-command validation (recommended)
-
-Run the full local validation suite (tests + type-check + format/lint if installed):
+### 2) Validate install
 
 ```bash
 bash scripts/validate.sh
 ```
 
-If you have multiple Python tools installed (conda/pyenv/system), prefer these to avoid PATH conflicts:
+### 3) Run the full pipeline (recommended)
 
 ```bash
-.venv/bin/python -m ruff check .
-.venv/bin/python -m black --check .
-.venv/bin/python -m mypy src tests
-.venv/bin/python -m pytest -q
+bash scripts/run_e2e_hyperliquid.sh --coin BTC --interval 1h --lookback-days 180 --out-dir out
 ```
 
-To run the same checks via pre-commit (matches `.pre-commit-config.yaml`):
+This runs: fetch -> replay -> backtest -> shadow -> TA features -> dashboard.
+
+### 4) Open outputs
+
+Main artifacts:
+
+- `out/nav_regimes.csv`
+- `out/metrics.csv`
+- `out/bars.csv`
+- `out/trades.csv`
+- `out/lifecycle.csv`
+- `out/shadow_log.csv`
+- `out/ta_features.csv`
+- `out/dashboard.html`
+
+Open `out/dashboard.html` directly, or serve it with rerun support:
 
 ```bash
-pre-commit run --all-files
+.venv/bin/python scripts/serve_dashboard.py --dashboard out/dashboard.html --csv data/hyperliquid_btc_1h.csv
 ```
 
-To run the heavier pre-push security scan manually:
+Then open `http://127.0.0.1:8000/`.
+
+### 5) Re-run without refetching data
 
 ```bash
-pre-commit run --hook-stage pre-push --all-files
+SKIP_FETCH=1 DATA_CSV=data/hyperliquid_btc_1h.csv bash scripts/run_e2e_hyperliquid.sh
 ```
 
-## Security tooling
+## Run each module directly (optional)
 
-Recommended local installs for this repo:
+### Navigation replay (labels only, no trading)
 
 ```bash
-brew install semgrep trivy gitleaks nmap testssl nikto lynis
+.venv/bin/python -m ssh_trader.nav.replay \
+  --csv data/hyperliquid_btc_1h.csv \
+  --timeframe 1h \
+  --fill-missing \
+  --output out/nav_regimes.csv
 ```
 
-What is wired into git hooks here:
-
-- `gitleaks` runs on `pre-commit` to block staged secrets before commit.
-- `trivy fs` runs on `pre-push` to catch high/critical dependency and IaC issues before code leaves the machine.
-- Existing `ruff`, `black`, `mypy`, and YAML hygiene checks stay in `pre-commit`.
-
-What stays manual or target-specific:
-
-- `semgrep scan --config auto` is useful for code review, but it is not enforced in hooks here because Semgrep has environment-specific runtime issues on some hosts and would make commits unreliable.
-- `nmap`, `testssl.sh`, `nikto`, `OWASP ZAP`, and `lynis` are for deployed targets or host audits, not repository commit hooks.
-
-Suggested ad hoc runs:
+### Backtest portfolio simulator
 
 ```bash
-gitleaks detect --source . --redact
-semgrep scan --config auto
-trivy fs .
-testssl.sh yourdomain.com
-nmap -sV -Pn yourdomain.com
-nikto -h https://yourdomain.com
-lynis audit system
+.venv/bin/python -m ssh_trader.backtest.run \
+  --csv data/hyperliquid_btc_1h.csv \
+  --timeframe 1h \
+  --fill-missing \
+  --output-metrics out/metrics.csv \
+  --output-bars out/bars.csv \
+  --output-trades out/trades.csv \
+  --output-lifecycle out/lifecycle.csv
 ```
 
-## Navigation replay (no trading)
+The simulator uses the same regime/guidance/risk stack as the dashboard. It now
+models directional positions as managed trade lifecycles rather than one-bar
+target pulses:
 
-Replay regime labels from an OHLCV CSV (UTC timestamps recommended):
+- entries are queued by configurable bar latency and filled inside the execution candle
+- exits are explicit (`stop_loss`, `take_profit`, `max_hold`, `regime_invalid`, or risk block)
+- lifecycle CSV rows include `exit_reason`
+- carry can be disabled by setting all carry allocation bands to `[0, 0]`
+- small carry target drift can be ignored with `sim.carry_rebalance_threshold_pct`
 
-```bash
-python -m ssh_trader.nav.replay --csv data/btc_1h.csv --timeframe 1h --fill-missing
-```
-
-Optional resampling and feature output:
-
-```bash
-python -m ssh_trader.nav.replay --csv data/btc_1h.csv --timeframe 1h --resample 4h --include-features
-```
-
-Optional JSON config:
+Example config snippet:
 
 ```json
 {
-  "data": {"timeframe": "1h", "fill_missing": true, "resample": "4h"},
-  "regime": {"trend_method": "sma", "long_ma_window": 200, "rv_window": 20, "vol_percentile_window": 252, "confirm_bars": 3}
+  "guidance": {
+    "aggressiveness": 0.5,
+    "risk_off_carry": [0, 0],
+    "neutral_carry": [0, 0],
+    "risk_on_carry": [0, 0]
+  },
+  "sim": {
+    "order_latency_bars": 1,
+    "fill_time_fraction": 0.25,
+    "fill_range_position": 0.75,
+    "directional_stop_loss_pct": 0.02,
+    "directional_take_profit_pct": 0.04,
+    "directional_max_hold_bars": 24,
+    "carry_rebalance_threshold_pct": 0.01
+  }
 }
 ```
 
-## PRD workflow (how to validate each PRD)
-
-For each PRD you generate:
-
-1. Add/adjust pure, deterministic functions under `src/ssh_trader/nav/` and/or `src/ssh_trader/data/`.
-2. Add unit tests with fixed inputs under `tests/` (avoid network calls, randomness, and wall-clock time).
-3. Run `bash scripts/validate.sh` until green.
-4. If you use git, keep pre-commit enabled so `mypy`/formatting can’t regress.
-
-## Portfolio simulator (no execution)
-
-Run the event-driven portfolio simulator (carry + regime-gated directional overlay) over an OHLCV CSV:
+### Live shadow runner (no signing, no keys)
 
 ```bash
-.venv/bin/python -m ssh_trader.backtest.run --csv data/btc_1h.csv --timeframe 1h --fill-missing
+.venv/bin/python -m ssh_trader.live.shadow_runner \
+  --csv data/hyperliquid_btc_1h.csv \
+  --timeframe 1h \
+  --fill-missing \
+  --output out/shadow_log.csv
 ```
 
-Optional JSON config keys (all optional):
-
-```json
-{
-  "data": {"timeframe": "1h", "fill_missing": true},
-  "guidance": {"aggressiveness": 0.5},
-  "risk": {"leverage_cap": 1.5, "venue_cap_frac": 0.3, "max_drawdown": 0.2, "kill_switch_action": "carry_only"},
-  "nav": {"long_ma_window": 200, "rv_window": 20, "vol_percentile_window": 252, "confirm_bars": 3},
-  "compression": {"atr_window": 14, "contraction_lookback": 50, "vol_pct_window": 252, "range_window": 50},
-  "sim": {"initial_nav": 1000000.0, "carry_funding_freq_hours": 8, "liquidation_buffer": 0.1, "target_dir_vol": 0.2},
-  "fees": {"taker_fee_bps": 5.0, "slippage_bps_at_1x_nav": 10.0}
-}
-```
-
-## Shadow Mode Runner (no signing, no keys)
-
-Run the execution/control stack in shadow mode. This generates intended orders and hypothetical fills
-from live-style bar input without placing real orders:
+### TA feature dump
 
 ```bash
-.venv/bin/python -m ssh_trader.live.shadow_runner --csv data/btc_1h.csv --timeframe 1h --fill-missing --output shadow_log.csv
+.venv/bin/python scripts/dump_ta_features.py \
+  --csv-1h data/hyperliquid_btc_1h.csv \
+  --csv-4h data/hyperliquid_btc_4h.csv \
+  --fill-missing \
+  --output out/ta_features.csv
 ```
 
-Key logged fields include:
-
-- `intended_order`
-- `hypothetical_fill`
-- `slippage_estimate_bps`
-- `regime`
-- `reason` (skip/refusal reason)
-
-## Hyperliquid Historical Feed -> CSV
-
-Fetch historical **1H** candles + funding from Hyperliquid, fill missing bars deterministically, and
-emit a deterministic **4H** resample (UTC-normalized CSVs):
+## Hyperliquid historical CSV fetch
 
 ```bash
 .venv/bin/python scripts/fetch_hyperliquid_multitf.py \
@@ -186,126 +152,81 @@ emit a deterministic **4H** resample (UTC-normalized CSVs):
   --fill-missing
 ```
 
-Output columns:
+Output files:
 
-`timestamp,open,high,low,close,volume,funding,open_interest`
-
-Notes:
-
-- `timestamp` is always UTC ISO8601 (`...Z`).
-- Hyperliquid 1H history is limited to the most recent ~5000 candles; if you request too large a
-  window you may get empty results. Prefer shorter windows (e.g. 30–180 days) for iterative work.
-- `open_interest` currently uses a latest-available context snapshot (`--open-interest latest_ctx`)
-  and is constant across rows.
-- Outputs written by default:
-  - `data/hyperliquid_btc_1h.csv`
-  - `data/hyperliquid_btc_4h.csv`
-
-## End-to-End Pipeline
-
-One-command flow (fetch 1H+4H -> replay -> backtest -> shadow -> TA feature dump -> dashboard):
-
-```bash
-bash scripts/run_e2e_hyperliquid.sh
-```
-
-Short command (runs the end-to-end pipeline and serves the dashboard API):
-
-```bash
-bash scripts/run_dashboard.sh
-```
-
-Useful options:
-
-```bash
-bash scripts/run_e2e_hyperliquid.sh \
-  --coin BTC \
-  --interval 1h \
-  --lookback-days 180 \
-  --out-dir out
-```
+- `data/hyperliquid_btc_1h.csv`
+- `data/hyperliquid_btc_4h.csv`
 
 Notes:
 
-- If you use a long MA trend filter (e.g. `long_ma_window=200`) and rolling vol percentile windows
-  (e.g. `vol_percentile_window=252`) on `1h` data, you generally want **at least ~2–4 weeks** of
-  data so the features “warm up” and regime transitions can occur. `--lookback-days 180` is a good
-  default for quick sanity checks.
+- `timestamp` is UTC ISO8601 (`...Z`).
+- Hyperliquid 1h history is limited to roughly the most recent ~5000 candles.
+- For stable warm-up of long-window features, `--lookback-days 180` is a good default.
 
-Reuse an existing CSV (skip API fetch):
+## Development checks
 
 ```bash
-SKIP_FETCH=1 DATA_CSV=data/hyperliquid_btc_1h.csv bash scripts/run_e2e_hyperliquid.sh
+bash scripts/validate.sh
+pre-commit run --all-files
+pre-commit run --hook-stage pre-push --all-files
 ```
 
-Outputs:
-
-- `out/nav_regimes.csv`
-- `out/metrics.csv`
-- `out/bars.csv`
-- `out/trades.csv`
-- `out/shadow_log.csv`
-- `out/ta_features.csv`
-- `out/dashboard.html`
-
-Dashboard tips:
-
-- Charts support drag-pan, wheel-zoom, and double-click to reset view.
-- The dashboard includes a **Rerun Simulation** panel:
-  - If you open `out/dashboard.html` directly, it shows a CLI command you can copy/paste.
-  - If you want a real **Run Simulation** button (and live leverage/exposure charts),
-    serve it locally:
+If PATH resolution is noisy, prefer explicit interpreter:
 
 ```bash
-.venv/bin/python scripts/serve_dashboard.py --dashboard out/dashboard.html --csv data/hyperliquid_btc_1h.csv
+.venv/bin/python -m pytest -q
+.venv/bin/python -m mypy src tests
+.venv/bin/python -m ruff check .
+.venv/bin/python -m black --check .
 ```
 
-Then open `http://127.0.0.1:8000/`.
+## Run the interactive dashboard
 
-Backtest trades vs open/close:
-
-- The **Backtest Trades** table currently shows *rebalance legs* (spot and perp) per bar,
-  not discrete open/close trades. That is why you often see two rows at the same timestamp
-  (spot + perp legs).
-- Trade grouping into explicit **open/close** lifecycles is now available via the lifecycle
-  output CSV and the dashboard lifecycle table (both directional and carry).
-- Carry lifecycles are closed/reopened on regime changes to make portfolio transitions visible.
-- Directional lifecycles can be sparse if RISK_ON + expansion triggers are rare.
-
-1. Fetch data:
+The Next.js dashboard is in `trading-dashboard/`. Use Node 20+; the local build
+has been verified with Node 22.
 
 ```bash
-.venv/bin/python scripts/fetch_hyperliquid_multitf.py --coin BTC --start 2024-01-01T00:00:00Z --end 2024-06-01T00:00:00Z --output-dir data --fill-missing
+cd trading-dashboard
+npm install
+npm run dev
 ```
 
-2. Run nav replay:
+Then open `http://127.0.0.1:3000/dashboard`.
+
+If your shell resolves an older Node version, use the project Node 22 path:
 
 ```bash
-.venv/bin/python -m ssh_trader.nav.replay --csv data/hyperliquid_btc_1h.csv --timeframe 1h --fill-missing --output out/nav_regimes.csv
+PATH=/Users/sahil/.nvm/versions/node/v22.21.1/bin:$PATH npm run dev
 ```
 
-3. Run backtest (metrics + bars + lifecycle):
+From the dashboard you can rerun the simulation against `data/hyperliquid_btc_1h.csv`,
+toggle carry on/off, and adjust execution assumptions, directional stop/take-profit,
+max hold, and carry rebalance threshold.
+
+## Security note
+
+- Never commit secrets. Use environment variables.
+- Do not print API keys in logs or CLI output.
+- Use shadow mode first before any live venue integration.
+
+## Architecture
+
+- `src/ssh_trader/nav`: state estimation + regime labels
+- `src/ssh_trader/guidance`: exposure targets/policy
+- `src/ssh_trader/control`: execution decisions + routing protections
+- `src/ssh_trader/risk`: hard limits, sizing, drawdown kill-switch logic
+- `src/ssh_trader/backtest`: event-driven simulation and metrics
+- `src/ssh_trader/live`: venue adapters + shadow execution
+
+Architecture docs:
+
+- `docs/architecture.html`
+- `docs/architecture.graph.json`
+- `docs/architecture.mmd`
+- `docs/architecture.mermaid.html`
+
+Regenerate Mermaid artifacts after architecture changes:
 
 ```bash
-.venv/bin/python -m ssh_trader.backtest.run --csv data/hyperliquid_btc_1h.csv --timeframe 1h --fill-missing --output-metrics out/metrics.csv --output-bars out/bars.csv --output-trades out/trades.csv --output-lifecycle out/lifecycle.csv
-```
-
-4. Run shadow simulation:
-
-```bash
-.venv/bin/python -m ssh_trader.live.shadow_runner --csv data/hyperliquid_btc_1h.csv --timeframe 1h --fill-missing --output out/shadow_log.csv
-```
-
-5. Build modern dark-mode dashboard:
-
-```bash
-.venv/bin/python scripts/build_dashboard.py --title "BTC Hyperliquid Report" --bars out/bars.csv --metrics out/metrics.csv --shadow out/shadow_log.csv --trades out/trades.csv --lifecycle out/lifecycle.csv --ta-features out/ta_features.csv --output out/dashboard.html
-```
-
-Open `out/dashboard.html` in your browser.
-
-6. (Optional) Dump TA feature columns for inspection/tuning:
-
-```bash
-.venv/bin/python scripts/dump_ta_features.py --csv-1h data/hyperliquid_btc_1h.csv --csv-4h data/hyperliquid_btc_4h.csv --fill-missing --output out/ta_features.csv
+python scripts/generate_architecture_diagram.py
 ```
