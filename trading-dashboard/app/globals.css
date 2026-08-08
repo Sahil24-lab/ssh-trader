@@ -1,13 +1,148 @@
-/* 4️⃣ Global CSS (app/globals.css) */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Import Google fonts */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+:root {
+  color-scheme: dark;
+  --primary: #07DFC1;
+  --primary-light: #52F6D7;
+  --primary-dark: #029F8C;
+  --primary-dim: rgba(7, 223, 193, 0.12);
+  --primary-glow: rgba(7, 223, 193, 0.28);
+  --bg-base: #081624;
+  --bg-elevated: #091A28;
+  --bg-surface: #061320;
+  --bg-input: #040B14;
+  --border-default: rgba(7, 223, 193, 0.09);
+  --border-strong: rgba(7, 223, 193, 0.16);
+  --border-subtle: rgba(7, 223, 193, 0.045);
+  --text-primary: #EFFEEB;
+  --text-secondary: rgba(145, 254, 230, 0.72);
+  --text-muted: rgba(145, 254, 230, 0.54);
+  --text-label: rgba(145, 254, 230, 0.62);
+  --positive: #07DFC1;
+  --negative: #FF6B6B;
+  --warning: #F59E0B;
+  --font-display: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
 
-/* Basic page styling */
 html,
 body {
-  @apply h-full bg-graphite text-slate-100 font-body;
+  min-height: 100%;
+  background-color: var(--bg-base);
+  background-image:
+    radial-gradient(circle at 10% -10%, rgba(7, 223, 193, 0.055), transparent 32%),
+    linear-gradient(180deg, var(--bg-base) 0%, #071929 48%, var(--bg-base) 100%);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: top center;
+  background-attachment: fixed;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+* {
+  border-color: var(--border-default);
+}
+
+::selection {
+  background: var(--primary-dim);
+  color: var(--text-primary);
+}
+
+html {
+  scrollbar-color: var(--primary-dark) var(--bg-base);
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+
+*::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+*::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, var(--bg-base), var(--bg-input));
+  border-left: 1px solid var(--border-subtle);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--primary-light), var(--primary-dark));
+  border: 3px solid var(--bg-base);
+  border-radius: 999px;
+  box-shadow: 0 0 12px var(--primary-glow);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--primary-light), var(--primary));
+}
+
+@keyframes dashboard-skeleton {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.dashboard-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(145, 254, 230, 0.035) 0%,
+    rgba(145, 254, 230, 0.11) 45%,
+    rgba(145, 254, 230, 0.035) 100%
+  );
+  background-size: 200% 100%;
+  animation: dashboard-skeleton 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .dashboard-skeleton {
+    animation: none;
+    background-position: 50% 0;
+  }
+}
+
+.thin-scrollbar {
+  scrollbar-color: rgba(7, 223, 193, 0.42) var(--bg-input);
+  scrollbar-width: thin;
+}
+
+.thin-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: var(--bg-input);
+  border-radius: 999px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(82, 246, 215, 0.56), rgba(2, 159, 140, 0.52));
+  border: 2px solid var(--bg-input);
+  border-radius: 999px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--primary-light), var(--primary-dark));
+}
+
+.thin-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
 }

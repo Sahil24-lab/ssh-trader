@@ -13,9 +13,9 @@ type KpiCardProps = {
 };
 
 const changeToneStyles: Record<Tone, string> = {
-  supportive: "text-[#56D8C6]",
-  neutral: "text-[#A7B2C4]",
-  adverse: "text-[#EE6A7A]"
+  supportive: "text-supportive",
+  neutral: "text-uiTextDim",
+  adverse: "text-adverse"
 };
 
 export function KpiCard({
@@ -28,10 +28,10 @@ export function KpiCard({
 }: KpiCardProps): ReactNode {
   return (
     <article
-      className="relative min-h-[118px] rounded-[10px] border border-uiBorderMedium bg-uiSurfaceGlassDeep px-4 py-4 backdrop-blur-sm transition duration-150 hover:border-primary/25"
+      className="relative min-h-[118px] rounded-[var(--radius-lg)] border border-uiBorderMedium bg-uiSurfaceGlassDeep px-4 py-4 shadow-[0_2px_16px_rgba(0,0,0,0.34)] transition duration-150 hover:border-uiBorderStrong hover:shadow-[0_4px_20px_rgba(0,0,0,0.38)]"
       aria-label={`${label}: ${tooltip}`}
     >
-      <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.13em] text-uiTextDim">
+      <div className="mb-1 flex min-h-11 items-center gap-1 font-mono text-[0.58rem] font-medium uppercase tracking-[0.1em] text-[var(--text-label)]">
         {label}
         <InfoTooltip
           content={
@@ -43,13 +43,13 @@ export function KpiCard({
         >
           <button
             type="button"
-            className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-primary/25 text-[9px] text-primary"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[10px] text-primary transition hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             aria-label={`${label} information`}
           >
             ?
           </button>
         </InfoTooltip>
-      </p>
+      </div>
       {isLoading ? (
         <>
           <div className="dashboard-skeleton mt-4 h-8 w-24 rounded" />
@@ -57,7 +57,7 @@ export function KpiCard({
         </>
       ) : (
         <div className="flex flex-col items-start">
-          <p className="font-mono text-[24px] font-bold leading-[1.15] text-uiTextPrimary">
+          <p className="font-mono text-[1.35rem] font-bold leading-[1.15] text-uiTextPrimary">
             {value}
           </p>
           {changeText ? (

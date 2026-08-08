@@ -1,5 +1,9 @@
 export type BarRow = {
   timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
   price: number;
   nav: number;
   regime: string;
@@ -77,6 +81,12 @@ export type TaFeatureRow = {
 
 export type DashboardPayload = {
   generatedAtUtc: string;
+  sampling: {
+    barsOriginalCount: number;
+    barsReturnedCount: number;
+    taFeaturesOriginalCount: number;
+    taFeaturesReturnedCount: number;
+  };
   bars: BarRow[];
   metrics: MetricRow[];
   trades: TradeRow[];

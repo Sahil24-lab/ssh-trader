@@ -30,6 +30,9 @@ export const DEFAULT_DASHBOARD_CSV_PATHS: DashboardCsvPaths = {
   taFeatures: "out/ta_features.csv"
 };
 
+const DEFAULT_SOURCE_CSV_PATH = "data/hyperliquid_btc_1h.csv";
+const MAX_CHART_POINTS = 800;
+
 function splitCsvLine(line: string): string[] {
   const values: string[] = [];
   let current = "";
@@ -91,9 +94,14 @@ function bool(value: string | undefined): boolean {
   return value === "1" || value?.toLowerCase() === "true";
 }
 
-function mapBars(rows: Record<string, string>[]): BarRow[] {
+function mapBars(rows: Record<string, string>[], sourceRows: Record<string, string>[] = []): BarRow[] {
+  const sourceByTimestamp = new Map(sourceRows.map((row) => [row.timestamp ?? "", row]));
   return rows.map((row) => ({
     timestamp: row.timestamp ?? "",
+    open: num(row.open) || num(sourceByTimestamp.get(row.timestamp ?? "")?.open) || num(row.price),
+    high: num(row.high) || num(sourceByTimestamp.get(row.timestamp ?? "")?.high) || num(row.price),
+    low: num(row.low) || num(sourceByTimestamp.get(row.timestamp ?? "")?.low) || num(row.price),
+    close: num(row.close) || num(sourceByTimestamp.get(row.timestamp ?? "")?.close) || num(row.price),
     price: num(row.price),
     nav: num(row.nav),
     regime: row.regime ?? "",
@@ -180,11 +188,34 @@ function mapTaFeatures(rows: Record<string, string>[]): TaFeatureRow[] {
   }));
 }
 
+function sampleTimeSeries<T>(
+  rows: T[],
+  timestampFor: (row: T) => string,
+  requiredTimestamps: ReadonlySet<string> = new Set()
+): T[] {
+  if (rows.length <= MAX_CHART_POINTS) return rows;
+
+  const selectedIndexes = new Set<number>([0, rows.length - 1]);
+  const stride = (rows.length - 1) / (MAX_CHART_POINTS - 1);
+  for (let point = 0; point < MAX_CHART_POINTS; point += 1) {
+    selectedIndexes.add(Math.round(point * stride));
+  }
+
+  rows.forEach((row, index) => {
+    if (requiredTimestamps.has(timestampFor(row))) selectedIndexes.add(index);
+  });
+
+  return rows.filter((_, index) => selectedIndexes.has(index));
+}
+
 export async function buildDashboardPayload(
-  paths: DashboardCsvPaths = DEFAULT_DASHBOARD_CSV_PATHS
+  paths: DashboardCsvPaths = DEFAULT_DASHBOARD_CSV_PATHS,
+  sourceCsvPath = DEFAULT_SOURCE_CSV_PATH
 ): Promise<DashboardPayload> {
-  const [bars, metrics, trades, lifecycles, shadow, taFeatures] = await Promise.all([
+  const sourceCsv = path.isAbsolute(sourceCsvPath) ? path.relative(ROOT_DIR, sourceCsvPath) : sourceCsvPath;
+  const [bars, sourceBars, metrics, trades, lifecycles, shadow, taFeatures] = await Promise.all([
     readCsv(paths.bars),
+    readCsv(sourceCsv).catch(() => []),
     readCsv(paths.metrics),
     readCsv(paths.trades),
     readCsv(paths.lifecycles),
@@ -192,13 +223,28 @@ export async function buildDashboardPayload(
     readCsv(paths.taFeatures)
   ]);
 
+  const mappedBars = mapBars(bars, sourceBars);
+  const mappedLifecycles = mapLifecycles(lifecycles);
+  const lifecycleTimestamps = new Set(
+    mappedLifecycles.flatMap((row) => [row.openTs, row.closeTs]).filter(Boolean)
+  );
+  const mappedTaFeatures = mapTaFeatures(taFeatures);
+  const sampledBars = sampleTimeSeries(mappedBars, (row) => row.timestamp, lifecycleTimestamps);
+  const sampledTaFeatures = sampleTimeSeries(mappedTaFeatures, (row) => row.timestamp);
+
   return {
     generatedAtUtc: new Date().toISOString(),
-    bars: mapBars(bars),
+    sampling: {
+      barsOriginalCount: mappedBars.length,
+      barsReturnedCount: sampledBars.length,
+      taFeaturesOriginalCount: mappedTaFeatures.length,
+      taFeaturesReturnedCount: sampledTaFeatures.length
+    },
+    bars: sampledBars,
     metrics: mapMetrics(metrics),
     trades: mapTrades(trades),
-    lifecycles: mapLifecycles(lifecycles),
-    shadow: mapShadow(shadow),
-    taFeatures: mapTaFeatures(taFeatures)
+    lifecycles: mappedLifecycles,
+    shadow: mapShadow(shadow).slice(-250),
+    taFeatures: sampledTaFeatures
   };
 }

@@ -34,7 +34,8 @@ export function InfoTooltip({ content, children = "?", className = "" }: InfoToo
       {canRenderTooltip
         ? createPortal(
             <span
-              className="pointer-events-none fixed z-[10000] w-72 rounded-lg border border-primary/35 bg-[#07131f] p-3 text-left text-[12px] font-normal normal-case leading-relaxed tracking-normal text-textMuted shadow-2xl shadow-black/70"
+              role="tooltip"
+              className="pointer-events-none fixed z-[10000] w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-primary/35 bg-[var(--bg-surface)] p-3 text-left text-[12px] font-normal normal-case leading-relaxed tracking-normal text-textMuted shadow-2xl shadow-black/70"
               style={{ left, top }}
             >
               {content}
