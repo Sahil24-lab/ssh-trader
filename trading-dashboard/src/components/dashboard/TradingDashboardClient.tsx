@@ -1202,7 +1202,7 @@ function DetailItem({ label, value, tone }: { label: string; value: string; tone
 function InspectorSectionTitle({ children }: { children: string }) {
   return (
     <h4 className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em] text-uiTextSecondary">
-      // {children}
+      {"// "}{children}
     </h4>
   );
 }
